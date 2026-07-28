@@ -1,5 +1,4 @@
 import fs from "node:fs/promises";
-import path from "node:path";
 import xlsx from "xlsx";
 import { MongoClient, ObjectId } from "mongodb";
 
@@ -72,7 +71,9 @@ const client = new MongoClient(uri);
 await client.connect();
 const db = client.db(dbName);
 
-const workbook = xlsx.readFile(workbookPath, {
+const buffer = await fs.readFile(workbookPath);
+const workbook = xlsx.read(buffer, {
+  type: "buffer",
   cellDates: true,
   cellNF: false,
   cellText: true
@@ -85,16 +86,6 @@ if (!masterSheet || !attendanceSheet) {
   console.error("Workbook must contain MASTER and ATTENDANCE sheets.");
   process.exit(1);
 }
-
-const masterRows = xlsx.utils.sheet_to_json(masterSheet, {
-  header: 1,
-  defval: ""
-});
-
-const attendanceRows = xlsx.utils.sheet_to_json(attendanceSheet, {
-  header: 1,
-  defval: ""
-});
 
 const now = new Date();
 
@@ -112,13 +103,31 @@ await db.collection("locations").updateOne(
   { upsert: true }
 );
 
-const people = [];
+await Promise.all([
+  db.collection("attendanceMarks").deleteMany({ locationSlug }),
+  db.collection("sessions").deleteMany({ locationSlug }),
+  db.collection("people").deleteMany({ locationSlug })
+]);
+
+const masterRows = xlsx.utils.sheet_to_json(masterSheet, {
+  header: 1,
+  defval: ""
+});
+
+const attendanceRows = xlsx.utils.sheet_to_json(attendanceSheet, {
+  header: 1,
+  defval: ""
+});
+
+const peopleByMobile = new Map();
+let peopleImported = 0;
+
 for (const row of masterRows.slice(1)) {
   const name = String(row[1] ?? "").trim();
   const mobile = normalizeMobile(row[4]);
   if (!name || mobile.length !== 10) continue;
 
-  people.push({
+  const personDoc = {
     locationSlug,
     mobile,
     name,
@@ -129,15 +138,22 @@ for (const row of masterRows.slice(1)) {
     year: String(row[7] ?? "").trim(),
     createdAt: now,
     updatedAt: now
-  });
-}
+  };
 
-for (const person of people) {
-  await db.collection("people").updateOne(
-    { locationSlug, mobile: person.mobile },
-    { $setOnInsert: person, $set: { updatedAt: now } },
+  const result = await db.collection("people").updateOne(
+    { locationSlug, mobile },
+    { $set: personDoc, $setOnInsert: { createdAt: now } },
     { upsert: true }
   );
+
+  const person = await db.collection("people").findOne({ locationSlug, mobile });
+  if (!person) continue;
+
+  peopleByMobile.set(mobile, { _id: new ObjectId(String(person._id)), mobile, name });
+
+  if (result.upsertedCount > 0 || result.modifiedCount > 0) {
+    peopleImported += 1;
+  }
 }
 
 const sessionHeaders = attendanceRows[1] || [];
@@ -149,22 +165,28 @@ for (let col = 4; col < sessionHeaders.length; col += 1) {
   sessions.push({ col, label, sessionKey });
 }
 
+let sessionsImported = 0;
+let attendanceMarksImported = 0;
+
 for (const session of sessions) {
-  const sessionDate = session.sessionKey.length === 10 ? new Date(`${session.sessionKey}T00:00:00+05:30`) : now;
-  const sessionResult = await db.collection("sessions").updateOne(
+  const sessionDate =
+    session.sessionKey.length === 10 ? new Date(`${session.sessionKey}T00:00:00+05:30`) : now;
+
+  await db.collection("sessions").updateOne(
     { locationSlug, sessionKey: session.sessionKey },
     {
-      $setOnInsert: {
+      $set: {
         locationSlug,
         sessionKey: session.sessionKey,
         sessionLabel: session.label,
         sessionDate,
-        createdAt: now
+        updatedAt: now
       },
-      $set: { updatedAt: now }
+      $setOnInsert: { createdAt: now }
     },
     { upsert: true }
   );
+  sessionsImported += 1;
 
   const sessionDoc = await db.collection("sessions").findOne({ locationSlug, sessionKey: session.sessionKey });
   if (!sessionDoc) continue;
@@ -172,20 +194,20 @@ for (const session of sessions) {
   for (let rowIndex = 2; rowIndex < attendanceRows.length; rowIndex += 1) {
     const row = attendanceRows[rowIndex];
     if (!row) continue;
-    const name = String(row[1] ?? "").trim();
+
     const mobile = normalizeMobile(row[2]);
     const present = String(row[session.col] ?? "").trim().toLowerCase() === "yes";
-    if (!name || mobile.length !== 10 || !present) continue;
+    if (mobile.length !== 10 || !present) continue;
 
-    const person = await db.collection("people").findOne({ locationSlug, mobile });
+    const person = peopleByMobile.get(mobile) || (await db.collection("people").findOne({ locationSlug, mobile }));
     if (!person) continue;
 
-    await db.collection("attendanceMarks").updateOne(
+    const mark = await db.collection("attendanceMarks").updateOne(
       { locationSlug, sessionKey: session.sessionKey, personId: person._id },
       {
         $setOnInsert: {
           locationSlug,
-          sessionId: new ObjectId(String(sessionDoc._id)),
+          sessionId: sessionDoc._id,
           sessionKey: session.sessionKey,
           personId: person._id,
           mobile,
@@ -196,8 +218,14 @@ for (const session of sessions) {
       },
       { upsert: true }
     );
+
+    if (mark.upsertedCount > 0) {
+      attendanceMarksImported += 1;
+    }
   }
 }
 
 await client.close();
-console.log(`Imported ${people.length} people and ${sessions.length} sessions for ${locationSlug}.`);
+console.log(
+  `Imported ${peopleImported} people, ${sessionsImported} sessions and ${attendanceMarksImported} marks for ${locationSlug}.`
+);

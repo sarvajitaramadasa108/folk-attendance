@@ -62,6 +62,10 @@ export function AdminDashboard({ locationSlug, locationName, accent, subtitle }:
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [sessionKey, setSessionKey] = useState("");
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importReplace, setImportReplace] = useState(true);
+  const [importStatus, setImportStatus] = useState("");
+  const [importBusy, setImportBusy] = useState(false);
 
   const storageKey = useMemo(() => `${STORAGE_PREFIX}${locationSlug}`, [locationSlug]);
 
@@ -105,6 +109,42 @@ export function AdminDashboard({ locationSlug, locationName, accent, subtitle }:
   async function handleAccess(e: React.FormEvent) {
     e.preventDefault();
     window.localStorage.setItem(storageKey, accessCode);
+    await loadSummary(accessCode, sessionKey);
+  }
+
+  async function handleImport(e: React.FormEvent) {
+    e.preventDefault();
+    if (!importFile) {
+      setImportStatus("Please choose a workbook file first.");
+      return;
+    }
+
+    setImportBusy(true);
+    setImportStatus("");
+
+    const formData = new FormData();
+    formData.append("file", importFile);
+    formData.append("replace", String(importReplace));
+
+    const response = await fetch(`/api/locations/${locationSlug}/admin/import`, {
+      method: "POST",
+      headers: {
+        "x-admin-key": accessCode
+      },
+      body: formData
+    });
+
+    const body = await response.json().catch(() => null);
+    if (!response.ok) {
+      setImportStatus(body?.error || "Import failed.");
+      setImportBusy(false);
+      return;
+    }
+
+    setImportStatus(
+      `Imported ${body.peopleImported} people, ${body.sessionsImported} sessions, and ${body.attendanceMarksImported} marks.`
+    );
+    setImportBusy(false);
     await loadSummary(accessCode, sessionKey);
   }
 
@@ -152,6 +192,55 @@ export function AdminDashboard({ locationSlug, locationName, accent, subtitle }:
 
         {summary ? (
           <>
+            <div className="section" style={{ marginTop: 20 }}>
+              <div className="panel">
+                <div className="panelInner">
+                  <div className="sectionHeader" style={{ marginBottom: 10 }}>
+                    <div>
+                      <h3 className="sectionTitle">Import workbook</h3>
+                      <p className="sectionNote">
+                        Upload the existing `FOLK MVP.xlsx` file to seed MongoDB for this location.
+                      </p>
+                    </div>
+                  </div>
+                  <form className="formGrid" onSubmit={handleImport}>
+                    <div className="fieldGrid">
+                      <div className="field">
+                        <label htmlFor="workbook">Workbook file</label>
+                        <input
+                          id="workbook"
+                          type="file"
+                          accept=".xlsx,.xls"
+                          onChange={(event) => setImportFile(event.target.files?.[0] || null)}
+                        />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="replace">Import mode</label>
+                        <select
+                          id="replace"
+                          value={String(importReplace)}
+                          onChange={(event) => setImportReplace(event.target.value === "true")}
+                        >
+                          <option value="true">Replace existing location data</option>
+                          <option value="false">Keep existing data and merge</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="heroActions" style={{ marginTop: 4 }}>
+                      <button className="button" type="submit" disabled={importBusy}>
+                        {importBusy ? "Importing..." : "Import workbook into MongoDB"}
+                      </button>
+                    </div>
+                  </form>
+                  {importStatus ? (
+                    <div className="notice" style={{ marginTop: 14 }}>
+                      {importStatus}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+
             <div className="section" style={{ marginTop: 20 }}>
               <div className="gridCards">
                 <div className="statCard">

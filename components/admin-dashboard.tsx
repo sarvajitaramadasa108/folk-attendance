@@ -94,8 +94,15 @@ export function AdminDashboard({ locationSlug, locationName, accent, subtitle }:
     });
 
     if (!response.ok) {
-      const body = await response.json().catch(() => null);
-      setError(body?.error || "Unable to load admin data.");
+      const raw = await response.text().catch(() => "");
+      const body = raw ? (() => {
+        try {
+          return JSON.parse(raw) as { error?: string };
+        } catch {
+          return null;
+        }
+      })() : null;
+      setError(body?.error || raw || `Unable to load admin data (${response.status}).`);
       setLoading(false);
       return;
     }

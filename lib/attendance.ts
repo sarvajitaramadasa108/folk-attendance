@@ -85,7 +85,7 @@ export async function getOrCreateCurrentSession(locationSlug: string) {
   const sessionLabel = formatIndiaShortLabel();
   const now = new Date();
 
-  const result = await db.collection<SessionDoc>("sessions").findOneAndUpdate(
+  await db.collection<SessionDoc>("sessions").updateOne(
     { locationSlug, sessionKey },
     {
       $setOnInsert: {
@@ -97,14 +97,16 @@ export async function getOrCreateCurrentSession(locationSlug: string) {
       },
       $set: { updatedAt: now }
     },
-    { upsert: true, returnDocument: "after" }
+    { upsert: true }
   );
 
-  if (!result) {
+  const session = await db.collection<SessionDoc>("sessions").findOne({ locationSlug, sessionKey });
+
+  if (!session) {
     throw new Error("Unable to create session");
   }
 
-  return result;
+  return session;
 }
 
 export async function lookupMobile(locationSlug: string, mobileInput: string) {

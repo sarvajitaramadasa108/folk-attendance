@@ -1,4 +1,4 @@
-import { ObjectId, type Db } from "mongodb";
+import { ObjectId, type AnyBulkWriteOperation, type Collection, type Db, type Document } from "mongodb";
 import * as xlsx from "xlsx";
 
 export type WorkbookImportResult = {
@@ -6,6 +6,39 @@ export type WorkbookImportResult = {
   peopleImported: number;
   sessionsImported: number;
   attendanceMarksImported: number;
+};
+
+type PersonRow = {
+  locationSlug: string;
+  mobile: string;
+  name: string;
+  age: number | null;
+  gender: string;
+  college: string;
+  branch: string;
+  year: string;
+  createdAt?: Date;
+  updatedAt: Date;
+};
+
+type SessionRow = {
+  locationSlug: string;
+  sessionKey: string;
+  sessionLabel: string;
+  sessionDate: Date;
+  createdAt?: Date;
+  updatedAt: Date;
+};
+
+type AttendanceMarkRow = {
+  locationSlug: string;
+  sessionId: ObjectId;
+  sessionKey: string;
+  personId: ObjectId;
+  mobile: string;
+  status: "present";
+  source: "import";
+  markedAt: Date;
 };
 
 function normalizeMobile(value: unknown) {
@@ -108,15 +141,13 @@ export async function importWorkbookToMongo({
     defval: ""
   }) as unknown[][];
 
-  const peopleByMobile = new Map<string, { _id: ObjectId; mobile: string; name: string }>();
-  let peopleImported = 0;
-
+  const peopleDocs: PersonRow[] = [];
   for (const row of masterRows.slice(1)) {
     const name = String(row[1] ?? "").trim();
     const mobile = normalizeMobile(row[4]);
     if (!name || mobile.length !== 10) continue;
 
-    const personDoc = {
+    const personDoc: PersonRow = {
       locationSlug,
       mobile,
       name,
@@ -127,29 +158,11 @@ export async function importWorkbookToMongo({
       year: String(row[7] ?? "").trim(),
       updatedAt: now
     };
-
-    const result = await db.collection("people").updateOne(
-      { locationSlug, mobile },
-      { $set: personDoc, $setOnInsert: { createdAt: now } },
-      { upsert: true }
-    );
-
-    const person = await db.collection("people").findOne({ locationSlug, mobile });
-    if (!person) continue;
-
-    peopleByMobile.set(mobile, {
-      _id: person._id as ObjectId,
-      mobile,
-      name
-    });
-
-    if (result.upsertedCount > 0 || result.modifiedCount > 0) {
-      peopleImported += 1;
-    }
+    peopleDocs.push(personDoc);
   }
 
   const sessionHeaders = attendanceRows[1] || [];
-  const sessions = [];
+  const sessions: Array<{ col: number; label: string; sessionKey: string }> = [];
   for (let col = 4; col < sessionHeaders.length; col += 1) {
     const label = toSessionLabel(sessionHeaders[col]);
     if (!label) continue;
@@ -157,31 +170,76 @@ export async function importWorkbookToMongo({
     sessions.push({ col, label, sessionKey });
   }
 
-  let sessionsImported = 0;
-  let attendanceMarksImported = 0;
+  const sessionDocs: SessionRow[] = sessions.map((session) => ({
+    locationSlug,
+    sessionKey: session.sessionKey,
+    sessionLabel: session.label,
+    sessionDate: session.sessionKey.length === 10 ? new Date(`${session.sessionKey}T00:00:00+05:30`) : now,
+    updatedAt: now
+  }));
 
-  for (const session of sessions) {
-    const sessionDate =
-      session.sessionKey.length === 10 ? new Date(`${session.sessionKey}T00:00:00+05:30`) : now;
+  if (replaceExisting) {
+    if (peopleDocs.length > 0) {
+      await db.collection("people").insertMany(
+        peopleDocs.map((doc) => ({
+          ...doc,
+          createdAt: now
+        })),
+        { ordered: false }
+      );
+    }
 
-    await db.collection("sessions").updateOne(
-      { locationSlug, sessionKey: session.sessionKey },
-      {
-        $set: {
-          locationSlug,
-          sessionKey: session.sessionKey,
-          sessionLabel: session.label,
-          sessionDate,
-          updatedAt: now
-        },
-        $setOnInsert: { createdAt: now }
-      },
-      { upsert: true }
+    if (sessionDocs.length > 0) {
+      await db.collection("sessions").insertMany(
+        sessionDocs.map((doc) => ({
+          ...doc,
+          createdAt: now
+        })),
+        { ordered: false }
+      );
+    }
+  } else {
+    await bulkWriteInChunks(
+      db.collection("people"),
+      peopleDocs.map((doc) => ({
+        updateOne: {
+          filter: { locationSlug, mobile: doc.mobile },
+          update: { $set: doc, $setOnInsert: { createdAt: now } },
+          upsert: true
+        }
+      })),
+      200
     );
-    sessionsImported += 1;
 
-    const sessionDoc = await db.collection("sessions").findOne({ locationSlug, sessionKey: session.sessionKey });
-    if (!sessionDoc) continue;
+    await bulkWriteInChunks(
+      db.collection("sessions"),
+      sessionDocs.map((doc) => ({
+        updateOne: {
+          filter: { locationSlug, sessionKey: doc.sessionKey },
+          update: { $set: doc, $setOnInsert: { createdAt: now } },
+          upsert: true
+        }
+      })),
+      200
+    );
+  }
+
+  const storedPeople = await db.collection("people").find({ locationSlug }).toArray();
+  const storedSessions = await db.collection("sessions").find({ locationSlug }).toArray();
+
+  const peopleIdByMobile = new Map<string, ObjectId>();
+  const sessionIdByKey = new Map<string, ObjectId>();
+  for (const person of storedPeople) {
+    peopleIdByMobile.set(person.mobile, person._id as ObjectId);
+  }
+  for (const session of storedSessions) {
+    sessionIdByKey.set(session.sessionKey, session._id as ObjectId);
+  }
+
+  const marks: AttendanceMarkRow[] = [];
+  for (const session of sessions) {
+    const sessionId = sessionIdByKey.get(session.sessionKey);
+    if (!sessionId) continue;
 
     for (let rowIndex = 2; rowIndex < attendanceRows.length; rowIndex += 1) {
       const row = attendanceRows[rowIndex];
@@ -191,37 +249,48 @@ export async function importWorkbookToMongo({
       const present = String(row[session.col] ?? "").trim().toLowerCase() === "yes";
       if (mobile.length !== 10 || !present) continue;
 
-      const person = peopleByMobile.get(mobile) || (await db.collection("people").findOne({ locationSlug, mobile }));
-      if (!person) continue;
+      const personId = peopleIdByMobile.get(mobile);
+      if (!personId) continue;
 
-      const mark = await db.collection("attendanceMarks").updateOne(
-        { locationSlug, sessionKey: session.sessionKey, personId: person._id },
-        {
-          $setOnInsert: {
-            locationSlug,
-            sessionId: sessionDoc._id,
-            sessionKey: session.sessionKey,
-            personId: person._id,
-            mobile,
-            status: "present",
-            source: "import",
-            markedAt: now
-          }
-        },
-        { upsert: true }
-      );
-
-      if (mark.upsertedCount > 0) {
-        attendanceMarksImported += 1;
-      }
+      marks.push({
+        locationSlug,
+        sessionId,
+        sessionKey: session.sessionKey,
+        personId,
+        mobile,
+        status: "present",
+        source: "import",
+        markedAt: now
+      });
     }
+  }
+
+  if (replaceExisting) {
+    const markDocs = marks.map((mark) => ({
+      ...mark
+    }));
+    await insertManyInChunks(db.collection("attendanceMarks"), markDocs, 500);
+  } else {
+    await bulkWriteInChunks(
+      db.collection("attendanceMarks"),
+      marks.map((mark) => ({
+        updateOne: {
+          filter: { locationSlug, sessionKey: mark.sessionKey, personId: mark.personId },
+          update: {
+            $setOnInsert: mark
+          },
+          upsert: true
+        }
+      })),
+      500
+    );
   }
 
   return {
     locationSlug,
-    peopleImported,
-    sessionsImported,
-    attendanceMarksImported
+    peopleImported: peopleDocs.length,
+    sessionsImported: sessionDocs.length,
+    attendanceMarksImported: marks.length
   };
 }
 
@@ -232,4 +301,26 @@ export function readWorkbookFromBuffer(buffer: Buffer) {
     cellNF: false,
     cellText: true
   });
+}
+
+async function bulkWriteInChunks(collection: Collection<Document>, ops: AnyBulkWriteOperation<Document>[], chunkSize: number) {
+  for (let index = 0; index < ops.length; index += chunkSize) {
+    const chunk = ops.slice(index, index + chunkSize);
+    if (chunk.length > 0) {
+      await collection.bulkWrite(chunk, { ordered: false });
+    }
+  }
+}
+
+async function insertManyInChunks(
+  collection: Collection<Document>,
+  docs: Document[],
+  chunkSize: number
+) {
+  for (let index = 0; index < docs.length; index += chunkSize) {
+    const chunk = docs.slice(index, index + chunkSize);
+    if (chunk.length > 0) {
+      await collection.insertMany(chunk, { ordered: false });
+    }
+  }
 }

@@ -136,7 +136,6 @@ for (const row of masterRows.slice(1)) {
     college: String(row[5] ?? "").trim(),
     branch: String(row[6] ?? "").trim(),
     year: String(row[7] ?? "").trim(),
-    createdAt: now,
     updatedAt: now
   };
 

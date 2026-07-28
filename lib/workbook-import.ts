@@ -125,7 +125,6 @@ export async function importWorkbookToMongo({
       college: String(row[5] ?? "").trim(),
       branch: String(row[6] ?? "").trim(),
       year: String(row[7] ?? "").trim(),
-      createdAt: now,
       updatedAt: now
     };
 

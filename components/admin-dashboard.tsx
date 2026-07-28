@@ -73,7 +73,6 @@ export function AdminDashboard({ locationSlug, locationName, accent, subtitle }:
     const stored = window.localStorage.getItem(storageKey);
     if (stored) {
       setAccessCode(stored);
-      void loadSummary(stored, sessionKey);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storageKey]);

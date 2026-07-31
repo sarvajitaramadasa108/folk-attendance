@@ -1,21 +1,21 @@
 import type { Metadata } from "next";
-import { Space_Grotesk, IBM_Plex_Sans } from "next/font/google";
+import { Cormorant_Garamond, Inter } from "next/font/google";
 import "./globals.css";
 
-const display = Space_Grotesk({
+const display = Cormorant_Garamond({
   subsets: ["latin"],
   variable: "--font-display"
 });
 
-const body = IBM_Plex_Sans({
+const body = Inter({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
   variable: "--font-sans"
 });
 
 export const metadata: Metadata = {
-  title: "Folk Attendance",
-  description: "Location-aware attendance kiosk and admin dashboard for Folk."
+  title: "Bhagavatam PPT Generator",
+  description: "Generate a polished PPTX from verse, synonyms, translation, and purport inputs."
 };
 
 export default function RootLayout({

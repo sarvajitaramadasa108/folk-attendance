@@ -1,43 +1,43 @@
-# Folk Attendance
+# Bhagavatam PPT Generator
 
-Location-aware attendance kiosk and admin dashboard for the Folk attendance system.
+A Next.js web app that turns Bhagavatam verse content into a downloadable PPTX deck.
 
-## Routes
+## What it does
 
-- `/mvp` public attendance page
-- `/mvp/admin` admin dashboard
-- `/anits` public attendance page
-- `/anits/admin` admin dashboard
+- Accepts separate inputs for:
+  - verse
+  - synonyms
+  - translation
+  - purport
+- Automatically formats the content into a PowerPoint deck
+- Splits long text into additional slides when needed
+- Returns a `.pptx` file that can be opened in PowerPoint or imported into Google Slides
 
 ## Stack
 
 - Next.js App Router
-- MongoDB
+- TypeScript
+- `pptxgenjs` for slide generation
 - Vercel-ready deployment
 
-## Setup
-
-1. Copy `.env.example` to `.env.local`
-2. Fill `MONGODB_URI`, `MONGODB_DB`, and `ADMIN_ACCESS_CODE`
-3. Install dependencies and run the app
+## Local development
 
 ```bash
 npm install
 npm run dev
 ```
 
-## Import existing workbook data
+Then open the app in your browser and submit the form.
 
-The repository includes an importer that maps the workbook structure into MongoDB.
+## Output flow
 
-```bash
-npm run import:workbook -- "C:/Users/ASUS/Downloads/FOLK MVP.xlsx" mvp
-```
+1. Fill the form on the home page.
+2. Submit the form.
+3. The server route generates the PPTX.
+4. The browser downloads the deck automatically.
 
-## Vercel deploy notes
+## Deployment notes
 
-- Set `MONGODB_URI`
-- Set `MONGODB_DB`
-- Set `ADMIN_ACCESS_CODE`
-- Deploy the repository as a Next.js app
-
+- Deploy the repository as a standard Next.js project on Vercel.
+- No special backend is required beyond the `/api/generate-pptx` route.
+- The generated file can be uploaded to Google Slides later if you want to edit it there.

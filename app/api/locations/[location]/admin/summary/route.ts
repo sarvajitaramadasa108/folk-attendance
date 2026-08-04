@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAdminSummary } from "@/lib/attendance";
+import { isValidAdminCode } from "@/lib/admin-auth";
 import { getLocationConfig } from "@/lib/locations";
 
 export async function GET(
@@ -15,9 +16,8 @@ export async function GET(
     }
 
     const accessKey = request.headers.get("x-admin-key") || "";
-    const secret = process.env.ADMIN_ACCESS_CODE || "";
 
-    if (!secret || accessKey !== secret) {
+    if (!isValidAdminCode(accessKey)) {
       return NextResponse.json({ error: "Invalid admin access code" }, { status: 401 });
     }
 

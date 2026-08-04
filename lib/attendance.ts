@@ -32,6 +32,7 @@ type SessionDoc = {
   locationSlug: string;
   sessionKey: string;
   sessionLabel: string;
+  sessionName?: string;
   sessionDate: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -52,6 +53,9 @@ type AttendanceMarkDoc = {
 export type SessionInfo = {
   sessionKey: string;
   sessionLabel: string;
+  sessionName: string;
+  displayLabel: string;
+  sessionDate: string;
 };
 
 export type PublicPerson = {
@@ -89,6 +93,38 @@ export type AttendanceHistoryResult =
       summary: { attended: number; total: number; percentage: number };
       rows: Array<{ sno: number; sessionDate: string; attended: boolean }>;
     };
+
+export type SessionSummary = {
+  id: string;
+  sessionKey: string;
+  sessionLabel: string;
+  sessionName: string;
+  displayLabel: string;
+  sessionDate: string;
+  presentCount: number;
+  newAttendeesCount: number;
+};
+
+function formatSessionDateLabel(date: Date) {
+  return new Intl.DateTimeFormat("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit",
+    month: "short",
+    year: "numeric"
+  }).format(date);
+}
+
+function toSessionInfo(session: SessionDoc): SessionInfo {
+  const sessionName = String(session.sessionName || "").trim();
+  const displayLabel = sessionName || session.sessionLabel || formatSessionDateLabel(session.sessionDate);
+  return {
+    sessionKey: session.sessionKey,
+    sessionLabel: session.sessionLabel,
+    sessionName,
+    displayLabel,
+    sessionDate: session.sessionDate.toISOString()
+  };
+}
 
 async function ensureIndexes() {
   const db = await getDb();
@@ -154,6 +190,10 @@ function sanitizePerson(person: PersonDoc): PublicPerson {
   };
 }
 
+function getDisplayLabelFromSession(session: Pick<SessionDoc, "sessionName" | "sessionLabel" | "sessionDate">) {
+  return String(session.sessionName || "").trim() || session.sessionLabel || formatSessionDateLabel(session.sessionDate);
+}
+
 export async function getOrCreateCurrentSession(locationSlug: string) {
   await ensureLocation(locationSlug);
   const db = await getDb();
@@ -168,6 +208,7 @@ export async function getOrCreateCurrentSession(locationSlug: string) {
         locationSlug,
         sessionKey,
         sessionLabel,
+        sessionName: "",
         sessionDate: new Date(),
         createdAt: now
       },
@@ -198,7 +239,7 @@ export async function lookupMobile(locationSlug: string, mobileInput: string): P
   const people = await db.collection<PersonDoc>("people").find({ locationSlug, mobile }).sort({ createdAt: 1 }).toArray();
 
   if (people.length === 0) {
-    return { status: "none", mobile, session };
+    return { status: "none", mobile, session: toSessionInfo(session) };
   }
 
   const persons = people.map(sanitizePerson);
@@ -209,7 +250,7 @@ export async function lookupMobile(locationSlug: string, mobileInput: string): P
     return {
       status: "auto_mark",
       mobile,
-      session,
+      session: toSessionInfo(session),
       person: sanitizePerson(people[0])
     };
   }
@@ -218,7 +259,7 @@ export async function lookupMobile(locationSlug: string, mobileInput: string): P
     return {
       status: "choose",
       mobile,
-      session,
+      session: toSessionInfo(session),
       people: persons
     };
   }
@@ -227,7 +268,7 @@ export async function lookupMobile(locationSlug: string, mobileInput: string): P
   return {
     status: "fill",
     mobile,
-    session,
+    session: toSessionInfo(session),
     people: persons,
     selectedPersonId: String(selected._id),
     missingFields: missingProfileFields(selected)
@@ -269,7 +310,7 @@ export async function markExistingPerson(locationSlug: string, personId: string)
 
   return {
     status: duplicate ? ("already_marked" as const) : ("marked" as const),
-    session,
+    session: toSessionInfo(session),
     person: sanitizePerson(person)
   };
 }
@@ -384,7 +425,7 @@ export async function createPersonAndMark(
 
   return {
     status: "marked",
-    session,
+    session: toSessionInfo(session),
     person: sanitizePerson(person),
     message: `Welcome ${person.name}. Attendance marked Successfully`
   };
@@ -425,7 +466,7 @@ export async function markAttendanceForPerson(locationSlug: string, personId: st
 
   return {
     status: duplicate ? "already_marked" : "marked",
-    session,
+    session: toSessionInfo(session),
     person: sanitizePerson(person),
     message: duplicate
       ? `${person.name} was already marked for this session.`
@@ -472,12 +513,7 @@ export async function getAttendanceHistory(locationSlug: string, mobileInput: st
   const marksBySession = new Set(marks.map((mark) => mark.sessionKey));
   const rows = sessions.map((session, index) => ({
     sno: index + 1,
-    sessionDate: new Intl.DateTimeFormat("en-IN", {
-      timeZone: "Asia/Kolkata",
-      day: "2-digit",
-      month: "short",
-      year: "numeric"
-    }).format(session.sessionDate),
+    sessionDate: formatSessionDateLabel(session.sessionDate),
     attended: marksBySession.has(session.sessionKey)
   }));
   const attended = rows.filter((row) => row.attended).length;
@@ -496,15 +532,43 @@ export async function getAttendanceHistory(locationSlug: string, mobileInput: st
   };
 }
 
+export async function updateSessionNames(
+  locationSlug: string,
+  updates: Array<{ sessionKey: string; sessionName: string }>
+) {
+  await ensureLocation(locationSlug);
+  const db = await getDb();
+  const now = new Date();
+  let updated = 0;
+
+  for (const update of updates) {
+    const sessionKey = String(update.sessionKey || "").trim();
+    if (!sessionKey) continue;
+
+    const sessionName = String(update.sessionName || "").trim();
+    const result = await db.collection<SessionDoc>("sessions").updateOne(
+      { locationSlug, sessionKey },
+      {
+        $set: {
+          sessionName,
+          updatedAt: now
+        }
+      }
+    );
+
+    if (result.matchedCount > 0) {
+      updated += 1;
+    }
+  }
+
+  return { updated };
+}
+
 export async function getAdminSummary(locationSlug: string, sessionKey?: string) {
   await ensureLocation(locationSlug);
   const db = await getDb();
   const currentSession = await getOrCreateCurrentSession(locationSlug);
-  const selectedSessionKey = sessionKey || currentSession.sessionKey;
-
-  const [totalPeople, totalSessions, masterPeople, sessions, sessionCounts, selectedSessionMarks] = await Promise.all([
-    db.collection("people").countDocuments({ locationSlug }),
-    db.collection("sessions").countDocuments({ locationSlug }),
+  const [masterPeople, sessions, sessionCounts, selectedSessionMarks, firstAttendanceCounts, peopleWithCounts, totalPeople, totalSessions] = await Promise.all([
     db
       .collection<PersonDoc>("people")
       .find({ locationSlug })
@@ -514,8 +578,7 @@ export async function getAdminSummary(locationSlug: string, sessionKey?: string)
     db
       .collection<SessionDoc>("sessions")
       .find({ locationSlug })
-      .sort({ sessionDate: -1, createdAt: -1 })
-      .limit(24)
+      .sort({ sessionDate: 1, createdAt: 1 })
       .toArray(),
     db
       .collection<AttendanceMarkDoc>("attendanceMarks")
@@ -527,7 +590,7 @@ export async function getAdminSummary(locationSlug: string, sessionKey?: string)
     db
       .collection<AttendanceMarkDoc>("attendanceMarks")
       .aggregate([
-        { $match: { locationSlug, sessionKey: selectedSessionKey } },
+        { $match: { locationSlug, sessionKey: sessionKey || currentSession.sessionKey } },
         {
           $lookup: {
             from: "people",
@@ -539,44 +602,62 @@ export async function getAdminSummary(locationSlug: string, sessionKey?: string)
         { $unwind: "$person" },
         { $sort: { "person.name": 1 } }
       ])
-      .toArray()
-  ]);
-
-  const peopleWithCounts = await db
-    .collection<PersonDoc>("people")
-    .aggregate([
-      { $match: { locationSlug } },
-      {
-        $lookup: {
-          from: "attendanceMarks",
-          let: { personId: "$_id", locationSlug: "$locationSlug" },
-          pipeline: [
-            {
-              $match: {
-                $expr: {
-                  $and: [
-                    { $eq: ["$personId", "$$personId"] },
-                    { $eq: ["$locationSlug", "$$locationSlug"] }
-                  ]
+      .toArray(),
+    db
+      .collection<AttendanceMarkDoc>("attendanceMarks")
+      .aggregate([
+        { $match: { locationSlug } },
+        { $sort: { sessionKey: 1, markedAt: 1 } },
+        { $group: { _id: "$personId", firstSessionKey: { $first: "$sessionKey" } } },
+        { $group: { _id: "$firstSessionKey", newAttendeesCount: { $sum: 1 } } }
+      ])
+      .toArray(),
+    db
+      .collection<PersonDoc>("people")
+      .aggregate([
+        { $match: { locationSlug } },
+        {
+          $lookup: {
+            from: "attendanceMarks",
+            let: { personId: "$_id", locationSlug: "$locationSlug" },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $eq: ["$personId", "$$personId"] },
+                      { $eq: ["$locationSlug", "$$locationSlug"] }
+                    ]
+                  }
                 }
               }
-            }
-          ],
-          as: "marks"
-        }
-      },
-      {
-        $addFields: {
-          presentSessions: { $size: "$marks" }
-        }
-      },
-      { $sort: { presentSessions: -1, name: 1 } },
-      { $limit: 50 }
-    ])
-    .toArray();
+            ],
+            as: "marks"
+          }
+        },
+        {
+          $addFields: {
+            presentSessions: { $size: "$marks" }
+          }
+        },
+        { $sort: { presentSessions: -1, name: 1 } },
+        { $limit: 1000 }
+      ])
+      .toArray(),
+    db.collection("people").countDocuments({ locationSlug }),
+    db.collection("sessions").countDocuments({ locationSlug }),
+  ]);
 
-  const boysRegularFolk = peopleWithCounts
-    .filter((person) => (person.gender || "").toLowerCase() === "male")
+  const selectedSessionKey = sessionKey || currentSession.sessionKey;
+  const sessionCountsMap = new Map(sessionCounts.map((item) => [String(item._id), Number(item.presentCount || 0)]));
+  const newAttendeesMap = new Map(firstAttendanceCounts.map((item) => [String(item._id), Number(item.newAttendeesCount || 0)]));
+  const sessionsSorted = sessions.slice();
+  const latestSession = sessionsSorted[sessionsSorted.length - 1] || currentSession;
+  const latestSessionKey = latestSession.sessionKey;
+  const latestSessionDisplayLabel = getDisplayLabelFromSession(latestSession);
+  const latestSessionNewCount = Number(newAttendeesMap.get(latestSessionKey) || 0);
+
+  const regularFolk = peopleWithCounts
     .map((person) => ({
       id: String(person._id),
       name: person.name,
@@ -586,19 +667,33 @@ export async function getAdminSummary(locationSlug: string, sessionKey?: string)
       gender: person.gender || "",
       presentSessions: Number(person.presentSessions || 0),
       attendanceRate: totalSessions ? Number(((person.presentSessions || 0) / totalSessions) * 100) : 0
-    }));
+    }))
+    .filter((person) => person.presentSessions >= 5);
 
   return {
     locationSlug,
-    currentSession,
+    currentSession: {
+      sessionKey: currentSession.sessionKey,
+      sessionLabel: currentSession.sessionLabel,
+      sessionName: currentSession.sessionName || "",
+      displayLabel: getDisplayLabelFromSession(currentSession),
+      sessionDate: currentSession.sessionDate.toISOString()
+    },
     selectedSessionKey,
     totalPeople,
     totalSessions,
-    sessions: sessions.map((session) => ({
+    latestSessionKey,
+    latestSessionDisplayLabel,
+    latestSessionNewCount,
+    sessions: sessionsSorted.map((session) => ({
       id: String(session._id),
       sessionKey: session.sessionKey,
       sessionLabel: session.sessionLabel,
-      presentCount: sessionCounts.find((item) => item._id === session.sessionKey)?.presentCount || 0
+      sessionName: session.sessionName || "",
+      displayLabel: getDisplayLabelFromSession(session),
+      sessionDate: session.sessionDate.toISOString(),
+      presentCount: sessionCountsMap.get(session.sessionKey) || 0,
+      newAttendeesCount: newAttendeesMap.get(session.sessionKey) || 0
     })),
     masterPeople: masterPeople.map(sanitizePerson),
     selectedSessionAttendance: selectedSessionMarks.map((mark) => ({
@@ -611,6 +706,6 @@ export async function getAdminSummary(locationSlug: string, sessionKey?: string)
       branch: mark.person.branch || "",
       markedAt: mark.markedAt
     })),
-    regularFolk: boysRegularFolk
+    regularFolk
   };
 }

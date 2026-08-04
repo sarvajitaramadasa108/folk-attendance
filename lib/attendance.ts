@@ -194,6 +194,34 @@ function getDisplayLabelFromSession(session: Pick<SessionDoc, "sessionName" | "s
   return String(session.sessionName || "").trim() || session.sessionLabel || formatSessionDateLabel(session.sessionDate);
 }
 
+function parseSessionDateInput(value: string) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return null;
+  }
+
+  const parsed = new Date(text);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed;
+  }
+
+  const ddmmyyyy = text.match(/^(\d{2})[/-](\d{2})[/-](\d{4})$/);
+  if (ddmmyyyy) {
+    return new Date(`${ddmmyyyy[3]}-${ddmmyyyy[2]}-${ddmmyyyy[1]}T00:00:00+05:30`);
+  }
+
+  const ddmmyy = text.match(/^(\d{2})[/-](\d{2})[/-](\d{2})$/);
+  if (ddmmyy) {
+    return new Date(`20${ddmmyy[3]}-${ddmmyy[2]}-${ddmmyy[1]}T00:00:00+05:30`);
+  }
+
+  return null;
+}
+
+function getSessionKeyFromDate(date: Date) {
+  return formatIndiaDateKey(date);
+}
+
 export async function getOrCreateCurrentSession(locationSlug: string) {
   await ensureLocation(locationSlug);
   const db = await getDb();
@@ -224,6 +252,144 @@ export async function getOrCreateCurrentSession(locationSlug: string) {
   }
 
   return session;
+}
+
+export async function updateSessionDetails(
+  locationSlug: string,
+  updates: Array<{ sessionKey: string; sessionName?: string; sessionDate?: string }>
+) {
+  await ensureLocation(locationSlug);
+  const db = await getDb();
+  const now = new Date();
+  let updated = 0;
+
+  for (const update of updates) {
+    const sessionKey = String(update.sessionKey || "").trim();
+    if (!sessionKey) continue;
+
+    const sessionName = String(update.sessionName || "").trim();
+    const nextDate = update.sessionDate ? parseSessionDateInput(update.sessionDate) : null;
+    const setFields: Partial<Pick<SessionDoc, "sessionName" | "sessionLabel" | "sessionDate" | "updatedAt">> = {
+      updatedAt: now
+    };
+
+    if (sessionName !== "") {
+      setFields.sessionName = sessionName;
+    } else {
+      setFields.sessionName = "";
+    }
+
+    if (nextDate) {
+      setFields.sessionDate = nextDate;
+      setFields.sessionLabel = formatSessionDateLabel(nextDate);
+    }
+
+    const result = await db.collection<SessionDoc>("sessions").updateOne(
+      { locationSlug, sessionKey },
+      {
+        $set: setFields
+      }
+    );
+
+    if (result.matchedCount > 0) {
+      updated += 1;
+    }
+  }
+
+  return { updated };
+}
+
+export async function createSession(
+  locationSlug: string,
+  input: { sessionDate: string; sessionName?: string }
+) {
+  await ensureLocation(locationSlug);
+  const db = await getDb();
+  const now = new Date();
+  const parsedDate = parseSessionDateInput(input.sessionDate);
+
+  if (!parsedDate) {
+    return { status: "invalid" as const, message: "Please choose a valid session date." };
+  }
+
+  const sessionKey = getSessionKeyFromDate(parsedDate);
+  const sessionLabel = formatSessionDateLabel(parsedDate);
+  const sessionName = String(input.sessionName || "").trim();
+
+  const existing = await db.collection<SessionDoc>("sessions").findOne({ locationSlug, sessionKey });
+  if (existing) {
+    await db.collection<SessionDoc>("sessions").updateOne(
+      { locationSlug, sessionKey },
+      {
+        $set: {
+          sessionDate: parsedDate,
+          sessionLabel,
+          sessionName,
+          updatedAt: now
+        }
+      }
+    );
+
+    return {
+      status: "updated" as const,
+      session: {
+        id: String(existing._id),
+        sessionKey,
+        sessionLabel,
+        sessionName,
+        displayLabel: sessionName || sessionLabel,
+        sessionDate: parsedDate.toISOString(),
+        presentCount: 0,
+        newAttendeesCount: 0
+      }
+    };
+  }
+
+  const insertResult = await db.collection<Omit<SessionDoc, "_id">>("sessions").insertOne({
+    locationSlug,
+    sessionKey,
+    sessionLabel,
+    sessionName,
+    sessionDate: parsedDate,
+    createdAt: now,
+    updatedAt: now
+  });
+
+  return {
+    status: "created" as const,
+    session: {
+      id: String(insertResult.insertedId),
+      sessionKey,
+      sessionLabel,
+      sessionName,
+      displayLabel: sessionName || sessionLabel,
+      sessionDate: parsedDate.toISOString(),
+      presentCount: 0,
+      newAttendeesCount: 0
+    }
+  };
+}
+
+export async function deleteSession(locationSlug: string, sessionKey: string) {
+  await ensureLocation(locationSlug);
+  const db = await getDb();
+  const trimmed = String(sessionKey || "").trim();
+
+  if (!trimmed) {
+    return { status: "invalid" as const, message: "Session key is required." };
+  }
+
+  const session = await db.collection<SessionDoc>("sessions").findOne({ locationSlug, sessionKey: trimmed });
+  if (!session) {
+    return { status: "not_found" as const, message: "Session not found." };
+  }
+
+  await Promise.all([
+    db.collection("attendanceMarks").deleteMany({ locationSlug, sessionKey: trimmed }),
+    db.collection("sessions").deleteOne({ _id: session._id })
+  ]);
+
+  return { status: "deleted" as const };
 }
 
 export async function lookupMobile(locationSlug: string, mobileInput: string): Promise<AttendanceLookupResult> {

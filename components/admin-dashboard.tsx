@@ -92,6 +92,13 @@ function formatDate(value: string) {
   }).format(date);
 }
 
+function toDateInputValue(value: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 10);
+}
+
 function downloadXlsx(fileName: string, sheetName: string, rows: Record<string, unknown>[]) {
   const workbook = XLSX.utils.book_new();
   const worksheet = XLSX.utils.json_to_sheet(rows);
@@ -126,8 +133,12 @@ export function AdminDashboard({ locationSlug, locationName, accent, subtitle }:
   const [attendanceSearch, setAttendanceSearch] = useState("");
   const [regularSearch, setRegularSearch] = useState("");
   const [sessionDrafts, setSessionDrafts] = useState<Record<string, string>>({});
+  const [sessionDateDrafts, setSessionDateDrafts] = useState<Record<string, string>>({});
+  const [newSessionDate, setNewSessionDate] = useState("");
+  const [newSessionName, setNewSessionName] = useState("");
   const [saveState, setSaveState] = useState("");
   const [savingSessions, setSavingSessions] = useState(false);
+  const [sessionActionBusy, setSessionActionBusy] = useState("");
   const [unlocked, setUnlocked] = useState(false);
 
   async function loadSummary(
@@ -170,6 +181,9 @@ export function AdminDashboard({ locationSlug, locationName, accent, subtitle }:
     setSessionDrafts(
       Object.fromEntries(data.sessions.map((session) => [session.sessionKey, session.sessionName || ""]))
     );
+    setSessionDateDrafts(
+      Object.fromEntries(data.sessions.map((session) => [session.sessionKey, toDateInputValue(session.sessionDate)]))
+    );
     setUnlocked(true);
     if (!options?.keepView) {
       setView("master");
@@ -198,7 +212,8 @@ export function AdminDashboard({ locationSlug, locationName, accent, subtitle }:
       body: JSON.stringify({
         sessions: summary.sessions.map((session) => ({
           sessionKey: session.sessionKey,
-          sessionName: sessionDrafts[session.sessionKey] ?? ""
+          sessionName: sessionDrafts[session.sessionKey] ?? "",
+          sessionDate: sessionDateDrafts[session.sessionKey] ?? ""
         }))
       })
     });
@@ -213,6 +228,71 @@ export function AdminDashboard({ locationSlug, locationName, accent, subtitle }:
     setSaveState(`Saved ${body?.updated ?? summary.sessions.length} session names.`);
     setSavingSessions(false);
     await loadSummary(accessCode, sessionKey, { keepView: true });
+  }
+
+  async function handleCreateSession() {
+    if (!newSessionDate) {
+      setSaveState("Please choose a session date first.");
+      return;
+    }
+
+    setSessionActionBusy("create");
+    setSaveState("");
+
+    const response = await fetch(`/api/locations/${locationSlug}/admin/sessions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-admin-key": accessCode
+      },
+      body: JSON.stringify({
+        sessionDate: newSessionDate,
+        sessionName: newSessionName
+      })
+    });
+
+    const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
+    if (!response.ok) {
+      setSaveState(body?.error || body?.message || "Unable to create session.");
+      setSessionActionBusy("");
+      return;
+    }
+
+    setSaveState("Session added successfully.");
+    setNewSessionDate("");
+    setNewSessionName("");
+    setSessionActionBusy("");
+    await loadSummary(accessCode, sessionKey, { keepView: true });
+  }
+
+  async function handleDeleteSession(sessionKeyToDelete: string) {
+    if (!sessionKeyToDelete) return;
+    if (!window.confirm("Delete this session and its attendance marks?")) return;
+
+    setSessionActionBusy(sessionKeyToDelete);
+    setSaveState("");
+
+    const response = await fetch(`/api/locations/${locationSlug}/admin/sessions`, {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+        "x-admin-key": accessCode
+      },
+      body: JSON.stringify({
+        sessionKey: sessionKeyToDelete
+      })
+    });
+
+    const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
+    if (!response.ok) {
+      setSaveState(body?.error || body?.message || "Unable to delete session.");
+      setSessionActionBusy("");
+      return;
+    }
+
+    setSaveState("Session deleted successfully.");
+    setSessionActionBusy("");
+    await loadSummary(accessCode, "", { keepView: true });
   }
 
   const filteredMasterPeople = useMemo(() => {
@@ -493,6 +573,40 @@ export function AdminDashboard({ locationSlug, locationName, accent, subtitle }:
 
           {view === "sessions" ? (
             <div className="stack">
+              <div className="panel" style={{ background: "rgba(44, 126, 247, 0.05)" }}>
+                <div className="panelInner">
+                  <div className="sectionHeader" style={{ marginBottom: 12 }}>
+                    <div>
+                      <h3 className="sectionTitle">Add session</h3>
+                      <p className="sectionNote">Create a new session by choosing its date and optional name.</p>
+                    </div>
+                  </div>
+                  <div className="adminToolbar">
+                    <div className="field" style={{ minWidth: 220 }}>
+                      <label htmlFor="new-session-date">Session date</label>
+                      <input
+                        id="new-session-date"
+                        type="date"
+                        value={newSessionDate}
+                        onChange={(event) => setNewSessionDate(event.target.value)}
+                      />
+                    </div>
+                    <div className="field" style={{ flex: 1 }}>
+                      <label htmlFor="new-session-name">Session name</label>
+                      <input
+                        id="new-session-name"
+                        placeholder="Optional session name"
+                        value={newSessionName}
+                        onChange={(event) => setNewSessionName(event.target.value)}
+                      />
+                    </div>
+                    <button className="buttonSecondary" type="button" onClick={() => void handleCreateSession()} disabled={sessionActionBusy === "create"}>
+                      {sessionActionBusy === "create" ? "Adding..." : "Add session"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               <div className="adminToolbar">
                 <div className="field" style={{ flex: 1 }}>
                   <label htmlFor="session-search">Search</label>
@@ -505,7 +619,7 @@ export function AdminDashboard({ locationSlug, locationName, accent, subtitle }:
                 </div>
                 <div className="heroActions" style={{ marginTop: 0 }}>
                   <button className="buttonSecondary" type="button" onClick={() => void handleSaveSessions()} disabled={savingSessions}>
-                    {savingSessions ? "Saving..." : "Save session names"}
+                    {savingSessions ? "Saving..." : "Save session edits"}
                   </button>
                   <button
                     className="buttonSecondary"
@@ -538,9 +652,11 @@ export function AdminDashboard({ locationSlug, locationName, accent, subtitle }:
                       <th>S No</th>
                       <th>Session Date</th>
                       <th>Session Name</th>
+                      <th>Edit Date</th>
                       <th>Display Label</th>
                       <th>Present</th>
                       <th>New</th>
+                      <th>Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -561,9 +677,32 @@ export function AdminDashboard({ locationSlug, locationName, accent, subtitle }:
                             }
                           />
                         </td>
+                        <td style={{ minWidth: 180 }}>
+                          <input
+                            className="inlineInput"
+                            type="date"
+                            value={sessionDateDrafts[session.sessionKey] ?? ""}
+                            onChange={(event) =>
+                              setSessionDateDrafts((current) => ({
+                                ...current,
+                                [session.sessionKey]: event.target.value
+                              }))
+                            }
+                          />
+                        </td>
                         <td>{session.displayLabel}</td>
                         <td>{session.presentCount}</td>
                         <td>{session.newAttendeesCount}</td>
+                        <td>
+                          <button
+                            className="buttonGhost"
+                            type="button"
+                            onClick={() => void handleDeleteSession(session.sessionKey)}
+                            disabled={sessionActionBusy === session.sessionKey}
+                          >
+                            {sessionActionBusy === session.sessionKey ? "Deleting..." : "Delete"}
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>

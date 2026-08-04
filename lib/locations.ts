@@ -5,6 +5,7 @@ export type LocationConfig = {
   accent: string;
   accentSoft: string;
   description: string;
+  adminCode: string;
 };
 
 export const locations: Record<string, LocationConfig> = {
@@ -15,7 +16,8 @@ export const locations: Record<string, LocationConfig> = {
     accent: "#8be9a8",
     accentSoft: "rgba(139, 233, 168, 0.15)",
     description:
-      "Attendance kiosk and admin dashboard for the MVP location, built to mirror the existing spreadsheet workflow."
+      "Attendance kiosk and admin dashboard for the MVP location, built to mirror the existing spreadsheet workflow.",
+    adminCode: "MVP@2026"
   },
   anits: {
     slug: "anits",
@@ -24,7 +26,8 @@ export const locations: Record<string, LocationConfig> = {
     accent: "#7ec8ff",
     accentSoft: "rgba(126, 200, 255, 0.15)",
     description:
-      "Location-specific attendance space ready for the same flow once data is connected."
+      "Location-specific attendance space ready for the same flow once data is connected.",
+    adminCode: "ANITS@2026"
   }
 };
 

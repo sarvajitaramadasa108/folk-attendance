@@ -17,7 +17,7 @@ export async function GET(
 
     const accessKey = request.headers.get("x-admin-key") || "";
 
-    if (!isValidAdminCode(accessKey)) {
+    if (!isValidAdminCode(accessKey, config.slug)) {
       return NextResponse.json({ error: "Invalid admin access code" }, { status: 401 });
     }
 

@@ -1,17 +1,17 @@
-const FALLBACK_ADMIN_CODE = "MVP@2026";
+import { getLocationConfig } from "@/lib/locations";
 
-export function getAllowedAdminCodes() {
-  const codes = new Set<string>();
-  const envCode = process.env.ADMIN_ACCESS_CODE?.trim();
-
-  if (envCode) {
-    codes.add(envCode);
-  }
-
-  codes.add(FALLBACK_ADMIN_CODE);
-  return codes;
+function getEnvAdminCode(slug: string) {
+  const normalized = slug.trim().toUpperCase();
+  return process.env[`ADMIN_ACCESS_CODE_${normalized}`]?.trim() || "";
 }
 
-export function isValidAdminCode(code: string) {
-  return getAllowedAdminCodes().has(code.trim());
+export function isValidAdminCode(code: string, locationSlug: string) {
+  const config = getLocationConfig(locationSlug);
+  if (!config) {
+    return false;
+  }
+
+  const typed = code.trim();
+  const envCode = getEnvAdminCode(config.slug);
+  return typed === config.adminCode || (envCode ? typed === envCode : false);
 }

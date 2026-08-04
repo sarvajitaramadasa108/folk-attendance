@@ -15,6 +15,7 @@ export async function POST(
 
   const body = (await request.json().catch(() => ({}))) as {
     mobile?: string;
+    personId?: string;
     name?: string;
     age?: number | null;
     gender?: string;
@@ -24,11 +25,12 @@ export async function POST(
   };
 
   if (!body.mobile || !body.name) {
-    return NextResponse.json({ status: "invalid_mobile" }, { status: 400 });
+    return NextResponse.json({ status: "invalid", message: "Mobile and name are required." }, { status: 400 });
   }
 
   const result = await createPersonAndMark(config.slug, {
     mobile: body.mobile,
+    personId: body.personId,
     name: body.name,
     age: body.age ?? null,
     gender: body.gender,

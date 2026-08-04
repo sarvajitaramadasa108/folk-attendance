@@ -1,5 +1,22 @@
 export function normalizeMobile(value: string) {
-  return value.replace(/\D/g, "").trim();
+  const digits = value.replace(/\D/g, "").trim();
+
+  if (!digits) {
+    return "";
+  }
+
+  if (digits.length === 10 && /^[6-9]/.test(digits)) {
+    return digits;
+  }
+
+  if (digits.length > 10) {
+    const last10 = digits.slice(-10);
+    if (/^[6-9]/.test(last10)) {
+      return last10;
+    }
+  }
+
+  return digits.length === 10 ? digits : "";
 }
 
 export function pad2(value: number) {

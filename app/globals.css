@@ -70,6 +70,13 @@ body::before {
   padding: 28px 0 60px;
 }
 
+.publicShell {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  padding: 20px 0 40px;
+}
+
 .hero {
   display: grid;
   gap: 20px;
@@ -386,6 +393,94 @@ body::before {
   gap: 16px;
   align-items: center;
   padding: 16px 0 4px;
+}
+
+.publicHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  padding: 12px 0 18px;
+}
+
+.publicMain {
+  display: grid;
+  place-items: start center;
+  padding-top: 12px;
+}
+
+.publicCard,
+.historyPanel {
+  width: min(820px, 100%);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(16, 27, 48, 0.96), rgba(8, 15, 28, 0.96));
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(16px);
+  padding: 24px;
+}
+
+.publicTitle {
+  margin: 10px 0 10px;
+  font-size: clamp(34px, 4vw, 56px);
+  line-height: 0.98;
+  letter-spacing: -0.05em;
+}
+
+.publicLead {
+  margin: 0;
+  max-width: 62ch;
+  color: var(--muted);
+  line-height: 1.7;
+  font-size: 16px;
+}
+
+.publicStack {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.publicNotice {
+  margin-top: 16px;
+}
+
+.choiceRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+}
+
+.choiceRow input {
+  margin-top: 4px;
+}
+
+.choiceMeta {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.historyOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(5, 10, 18, 0.76);
+  backdrop-filter: blur(12px);
+  padding: 20px;
+  overflow: auto;
+  display: grid;
+  place-items: start center;
+}
+
+.historyPanel {
+  margin-top: 10px;
 }
 
 .brandMark {

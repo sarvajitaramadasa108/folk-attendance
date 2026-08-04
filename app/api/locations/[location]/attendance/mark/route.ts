@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { markExistingPerson } from "@/lib/attendance";
+import { markAttendanceForPerson } from "@/lib/attendance";
 import { getLocationConfig } from "@/lib/locations";
 
 export async function POST(
@@ -18,6 +18,6 @@ export async function POST(
     return NextResponse.json({ status: "not_found" }, { status: 400 });
   }
 
-  const result = await markExistingPerson(config.slug, body.personId);
+  const result = await markAttendanceForPerson(config.slug, body.personId);
   return NextResponse.json(result);
 }

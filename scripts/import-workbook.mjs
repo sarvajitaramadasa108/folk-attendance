@@ -22,6 +22,25 @@ function normalizeMobile(value) {
   return String(value ?? "").replace(/\D/g, "").trim();
 }
 
+function normalizeHeader(value) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ");
+}
+
+function findHeaderIndex(headers, terms, fallback = -1) {
+  const normalizedTerms = terms.map((term) => term.toLowerCase());
+  for (let index = 0; index < headers.length; index += 1) {
+    const header = normalizeHeader(headers[index]);
+    if (!header) continue;
+    if (normalizedTerms.some((term) => header.includes(term))) {
+      return index;
+    }
+  }
+  return fallback;
+}
+
 function toDateKey(value) {
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
     return value.toISOString().slice(0, 10);
@@ -119,23 +138,39 @@ const attendanceRows = xlsx.utils.sheet_to_json(attendanceSheet, {
   defval: ""
 });
 
+const masterHeaders = masterRows[0] || [];
+const masterNameIndex = findHeaderIndex(masterHeaders, ["name"], 1);
+const masterMobileIndex = findHeaderIndex(masterHeaders, ["whatsapp number", "mobile number", "mobile", "phone"], 2);
+const masterCollegeIndex = findHeaderIndex(masterHeaders, ["college", "company"], 3);
+const masterCourseIndex = findHeaderIndex(masterHeaders, ["course of study", "course"], 4);
+const masterBranchIndex = findHeaderIndex(masterHeaders, ["branch"], 5);
+const masterYearIndex = findHeaderIndex(masterHeaders, ["year"], 6);
+
+const attendanceDateHeaders = attendanceRows[0] || [];
+const attendanceSessionHeaders = attendanceRows[1] || [];
+
 const peopleByMobile = new Map();
 let peopleImported = 0;
 
 for (const row of masterRows.slice(1)) {
-  const name = String(row[1] ?? "").trim();
-  const mobile = normalizeMobile(row[4]);
+  const name = String(row[masterNameIndex] ?? "").trim();
+  const mobile = normalizeMobile(row[masterMobileIndex]);
   if (!name || mobile.length !== 10) continue;
+
+  const college = String(row[masterCollegeIndex] ?? "").trim();
+  const course = String(row[masterCourseIndex] ?? "").trim();
+  const branch = String(row[masterBranchIndex] ?? "").trim();
+  const year = String(row[masterYearIndex] ?? "").trim();
 
   const personDoc = {
     locationSlug,
     mobile,
     name,
-    age: row[2] === "" ? null : Number(row[2]),
-    gender: String(row[3] ?? "").trim() || "Male",
-    college: String(row[5] ?? "").trim(),
-    branch: String(row[6] ?? "").trim(),
-    year: String(row[7] ?? "").trim(),
+    age: null,
+    gender: "Male",
+    college: college || course,
+    branch: branch || course,
+    year,
     updatedAt: now
   };
 
@@ -155,12 +190,13 @@ for (const row of masterRows.slice(1)) {
   }
 }
 
-const sessionHeaders = attendanceRows[1] || [];
 const sessions = [];
-for (let col = 4; col < sessionHeaders.length; col += 1) {
-  const label = toSessionLabel(sessionHeaders[col]);
+for (let col = 4; col < Math.max(attendanceDateHeaders.length, attendanceSessionHeaders.length); col += 1) {
+  const dateCell = attendanceDateHeaders[col];
+  const labelCell = attendanceSessionHeaders[col];
+  const label = toSessionLabel(labelCell || dateCell);
   if (!label) continue;
-  const sessionKey = toDateKey(sessionHeaders[col]) || label;
+  const sessionKey = toDateKey(dateCell) || toDateKey(labelCell) || label;
   sessions.push({ col, label, sessionKey });
 }
 

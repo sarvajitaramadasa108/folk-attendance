@@ -28,6 +28,26 @@ export const locations: Record<string, LocationConfig> = {
     description:
       "Location-specific attendance space ready for the same flow once data is connected.",
     adminCode: "ANITS@2026"
+  },
+  kommadi: {
+    slug: "kommadi",
+    name: "Kommadi",
+    subtitle: "New location",
+    accent: "#f39c6b",
+    accentSoft: "rgba(243, 156, 107, 0.15)",
+    description:
+      "Fresh location workspace ready to start from zero with attendee-driven attendance capture.",
+    adminCode: "KOMMADI@2026"
+  },
+  dwarakanagar: {
+    slug: "dwarakanagar",
+    name: "Dwaraka Nagar",
+    subtitle: "New location",
+    accent: "#a78bfa",
+    accentSoft: "rgba(167, 139, 250, 0.15)",
+    description:
+      "Fresh location workspace ready to start from zero with attendee-driven attendance capture.",
+    adminCode: "DWARAKANAGAR@2026"
   }
 };
 

@@ -8,6 +8,10 @@ Location-aware attendance kiosk and admin dashboard for the Folk attendance syst
 - `/mvp/admin` admin dashboard
 - `/anits` public attendance page
 - `/anits/admin` admin dashboard
+- `/kommadi` public attendance page
+- `/kommadi/admin` admin dashboard
+- `/dwarakanagar` public attendance page
+- `/dwarakanagar/admin` admin dashboard
 
 ## Stack
 
@@ -18,7 +22,7 @@ Location-aware attendance kiosk and admin dashboard for the Folk attendance syst
 ## Setup
 
 1. Copy `.env.example` to `.env.local`
-2. Fill `MONGODB_URI`, `MONGODB_DB`, and `ADMIN_ACCESS_CODE`
+2. Fill `MONGODB_URI`, `MONGODB_DB`, and location-specific admin codes if needed
 3. Install dependencies and run the app
 
 ```bash
@@ -38,6 +42,6 @@ npm run import:workbook -- "C:/Users/ASUS/Downloads/FOLK MVP.xlsx" mvp
 
 - Set `MONGODB_URI`
 - Set `MONGODB_DB`
-- Set `ADMIN_ACCESS_CODE`
+- Set `ADMIN_ACCESS_CODE_MVP`, `ADMIN_ACCESS_CODE_ANITS`, `ADMIN_ACCESS_CODE_KOMMADI`, `ADMIN_ACCESS_CODE_DWARAKANAGAR` as needed
 - Deploy the repository as a Next.js app
 

@@ -21,8 +21,8 @@ export default function HomePage() {
             <h1 className="title">One codebase, many locations.</h1>
             <p className="lead">
               Each location gets its own public attendance page and admin workspace.
-              The MVP route is ready first, and the data model is built so we can add
-              ANITS and future locations without duplicating the application.
+              The data model is built so we can add MVP, ANITS, Kommadi, and
+              Dwaraka Nagar without duplicating the application.
             </p>
             <div className="heroActions">
               <Link className="button" href="/mvp">
@@ -42,7 +42,7 @@ export default function HomePage() {
               </div>
               <div className="metaCard">
                 <div className="metaLabel">Current routes</div>
-                <div className="metaValue">/mvp, /anits</div>
+                <div className="metaValue">/mvp, /anits, /kommadi, /dwarakanagar</div>
               </div>
               <div className="metaCard">
                 <div className="metaLabel">Storage</div>

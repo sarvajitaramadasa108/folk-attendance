@@ -647,15 +647,6 @@ export async function createPersonAndMark(
       {
         $set: updateFields,
         $setOnInsert: {
-          name: input.name.trim(),
-          age: input.age ?? null,
-          gender: input.gender?.trim() || "Male",
-          status: normalizeStatus(input.status),
-          college: input.college?.trim() || "",
-          branch: input.branch?.trim() || "",
-          year: input.year?.trim() || "",
-          companyName: input.companyName?.trim() || "",
-          coachingInstitute: input.coachingInstitute?.trim() || "",
           createdAt: now
         }
       },

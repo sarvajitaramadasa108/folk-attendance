@@ -15,6 +15,35 @@ type PersonInput = {
   coachingInstitute?: string;
 };
 
+const dwarakanagarSeedPeople = [
+  { name: "P. Mohan Sai", mobile: "8555939310" },
+  { name: "B. Guna Shekhar", mobile: "9908203565" },
+  { name: "V. Arun Kumar Reddy", mobile: "9182535892" },
+  { name: "V. Kesav", mobile: "7075869029" },
+  { name: "G. Ravi", mobile: "6281056985" },
+  { name: "K. Narasimha", mobile: "6303432379" },
+  { name: "B. Krishna", mobile: "8926071073" },
+  { name: "N. Srinu", mobile: "7660943468" },
+  { name: "K. Ram Kumar", mobile: "7207351439" },
+  { name: "M. Abhi", mobile: "7013825084" },
+  { name: "B. Chandu", mobile: "9705348268" },
+  { name: "K. Chandra", mobile: "9948127075" },
+  { name: "M. Janardhana Rao", mobile: "6309732595" },
+  { name: "B. Karthik", mobile: "8374213449" },
+  { name: "V. Pruthvi", mobile: "9347880340" },
+  { name: "B. Phanindra", mobile: "9985448614" },
+  { name: "K. Sai Teja", mobile: "9676960232" },
+  { name: "P. Vignesh", mobile: "9393143833" },
+  { name: "K. Venu", mobile: "8790767807" },
+  { name: "P. Vasu", mobile: "9652733895" },
+  { name: "G. Yeshwanth", mobile: "8977411078" },
+  { name: "S. Chandra Sekhar", mobile: "7815890583" },
+  { name: "K. Pydiraju", mobile: "6301228126" },
+  { name: "K. Ramu", mobile: "7207271053" },
+  { name: "P. Chalapathi", mobile: "9912514122" },
+  { name: "S. Sai Kumar", mobile: "6302153275" }
+] as const;
+
 type LocationDoc = {
   slug: string;
   name: string;
@@ -175,6 +204,33 @@ async function ensureLocation(locationSlug: string) {
     },
     { upsert: true }
   );
+
+  if (locationSlug === "dwarakanagar") {
+    await Promise.all(
+      dwarakanagarSeedPeople.map((person) =>
+        db.collection<PersonDoc>("people").updateOne(
+          { locationSlug, mobile: person.mobile },
+          {
+            $setOnInsert: {
+              locationSlug,
+              mobile: person.mobile,
+              name: person.name,
+              age: null,
+              gender: "",
+              status: "",
+              college: "",
+              branch: "",
+              year: "",
+              companyName: "",
+              coachingInstitute: "",
+              createdAt: now
+            }
+          },
+          { upsert: true }
+        )
+      )
+    );
+  }
 }
 
 function isStandardProfileComplete(person: Pick<PersonDoc, "age" | "gender" | "college" | "branch" | "year">) {

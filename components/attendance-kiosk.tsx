@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
+type RegistrationMode = "standard" | "occupation";
 
 type Person = {
   id: string;
@@ -8,21 +10,38 @@ type Person = {
   mobile: string;
   age: number | null;
   gender: string;
+  status: string;
   college: string;
   branch: string;
   year: string;
+  companyName: string;
+  coachingInstitute: string;
   profileComplete: boolean;
 };
 
 type LookupResponse =
   | { status: "invalid" }
-  | { status: "none"; mobile: string; session: { sessionLabel: string } }
-  | { status: "auto_mark"; mobile: string; session: { sessionLabel: string }; person: Person }
-  | { status: "choose"; mobile: string; session: { sessionLabel: string }; people: Person[] }
+  | {
+      status: "none";
+      mobile: string;
+      session: { sessionLabel: string; displayLabel: string };
+    }
+  | {
+      status: "auto_mark";
+      mobile: string;
+      session: { sessionLabel: string; displayLabel: string };
+      person: Person;
+    }
+  | {
+      status: "choose";
+      mobile: string;
+      session: { sessionLabel: string; displayLabel: string };
+      people: Person[];
+    }
   | {
       status: "fill";
       mobile: string;
-      session: { sessionLabel: string };
+      session: { sessionLabel: string; displayLabel: string };
       people: Person[];
       selectedPersonId: string;
       missingFields: string[];
@@ -31,7 +50,7 @@ type LookupResponse =
 type SubmitResponse =
   | {
       status: "marked" | "already_marked";
-      session: { sessionLabel: string };
+      session: { sessionLabel: string; displayLabel: string };
       person: Person;
       message: string;
     }
@@ -52,34 +71,48 @@ type Props = {
   locationSlug: string;
   locationName: string;
   accent: string;
+  registrationMode: RegistrationMode;
 };
 
 type FormState = {
   name: string;
   age: string;
   gender: string;
+  status: string;
   college: string;
   branch: string;
   year: string;
+  companyName: string;
+  coachingInstitute: string;
 };
 
 const emptyForm: FormState = {
   name: "",
   age: "",
   gender: "Male",
+  status: "student",
   college: "",
   branch: "",
-  year: ""
+  year: "",
+  companyName: "",
+  coachingInstitute: ""
 };
 
-function formFromPerson(person?: Person): FormState {
+function formFromPerson(person?: Person, mode: RegistrationMode = "standard"): FormState {
+  if (!person) {
+    return emptyForm;
+  }
+
   return {
-    name: person?.name || "",
-    age: person?.age ? String(person.age) : "",
-    gender: person?.gender || "Male",
-    college: person?.college || "",
-    branch: person?.branch || "",
-    year: person?.year || ""
+    name: person.name || "",
+    age: person.age ? String(person.age) : "",
+    gender: person.gender || "Male",
+    status: person.status || (mode === "occupation" ? "student" : "student"),
+    college: person.college || "",
+    branch: person.branch || "",
+    year: person.year || "",
+    companyName: person.companyName || "",
+    coachingInstitute: person.coachingInstitute || ""
   };
 }
 
@@ -88,11 +121,26 @@ function isBlank(value: string) {
 }
 
 function formatMissingFields(fields: string[]) {
-  if (!fields.length) return "missing details";
-  return fields.map((field) => field.replace(/^[a-z]/, (c) => c.toUpperCase())).join(", ");
+  const labels: Record<string, string> = {
+    age: "Age",
+    gender: "Gender",
+    status: "Status",
+    college: "College",
+    branch: "Branch",
+    year: "Year",
+    companyName: "Company name",
+    coachingInstitute: "Coaching institute"
+  };
+
+  if (!fields.length) return "Missing details";
+  return fields.map((field) => labels[field] || field).join(", ");
 }
 
-export function AttendanceKiosk({ locationSlug, locationName, accent }: Props) {
+function greetingMessage(name: string, suffix: string) {
+  return name ? `Hare Krishna "${name}", ${suffix}` : `Hare Krishna, ${suffix}`;
+}
+
+export function AttendanceKiosk({ locationSlug, locationName, accent, registrationMode }: Props) {
   const [mobile, setMobile] = useState("");
   const [lookup, setLookup] = useState<LookupResponse | null>(null);
   const [selectedPersonId, setSelectedPersonId] = useState("");
@@ -107,30 +155,27 @@ export function AttendanceKiosk({ locationSlug, locationName, accent }: Props) {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyMessage, setHistoryMessage] = useState("");
 
+  const modeLabel = useMemo(
+    () => (registrationMode === "occupation" ? "Enter your mobile number. We will ask only what is needed." : "Enter your mobile number to mark attendance."),
+    [registrationMode]
+  );
+
   useEffect(() => {
-    if (!lookup) {
-      return;
-    }
+    if (!lookup) return;
 
     if (lookup.status === "choose") {
       const first = lookup.people[0];
       setSelectedPersonId(first?.id || "");
-      setForm(formFromPerson(first));
+      setForm(formFromPerson(first, registrationMode));
       return;
     }
 
     if (lookup.status === "fill") {
       const selected = lookup.people.find((person) => person.id === lookup.selectedPersonId) || lookup.people[0];
       setSelectedPersonId(selected?.id || "");
-      setForm(formFromPerson(selected));
-      return;
+      setForm(formFromPerson(selected, registrationMode));
     }
-
-    if (lookup.status === "none") {
-      setSelectedPersonId("");
-      setForm(emptyForm);
-    }
-  }, [lookup]);
+  }, [lookup, registrationMode]);
 
   function resetAfterSuccess(nextMessage: string) {
     setMessage(nextMessage);
@@ -164,6 +209,15 @@ export function AttendanceKiosk({ locationSlug, locationName, accent }: Props) {
     if (data.status === "auto_mark") {
       await markSelected(data.person.id);
       return;
+    }
+
+    if (data.status === "none") {
+      setMessage(greetingMessage("", "Please register yourself by filling the details"));
+    } else if (data.status === "fill") {
+      const selected = data.people.find((person) => person.id === data.selectedPersonId) || data.people[0];
+      setMessage(greetingMessage(selected?.name || "", "Please fill out the missing details"));
+      setSelectedPersonId(data.selectedPersonId);
+      setForm(formFromPerson(selected, registrationMode));
     }
 
     setLookup(data);
@@ -201,9 +255,12 @@ export function AttendanceKiosk({ locationSlug, locationName, accent }: Props) {
         name: form.name,
         age: isBlank(form.age) ? null : Number(form.age),
         gender: form.gender,
+        status: form.status,
         college: form.college,
         branch: form.branch,
-        year: form.year
+        year: form.year,
+        companyName: form.companyName,
+        coachingInstitute: form.coachingInstitute
       })
     });
 
@@ -272,6 +329,15 @@ export function AttendanceKiosk({ locationSlug, locationName, accent }: Props) {
     setHistoryLookup(data);
   }
 
+  const promptTitle =
+    registrationMode === "occupation"
+      ? "Mark your attendance"
+      : "Mark your attendance";
+  const promptLine =
+    registrationMode === "occupation"
+      ? "Enter your mobile number. We will ask only for the details we still need."
+      : "Enter your mobile number and we will handle the rest.";
+
   return (
     <>
       <div className="publicShell">
@@ -289,13 +355,14 @@ export function AttendanceKiosk({ locationSlug, locationName, accent }: Props) {
           <main className="publicMain">
             <section className="publicCard">
               <div className="eyebrow" style={{ color: accent }}>
-                Mark your attendance
+                {promptTitle}
               </div>
-              <h1 className="publicTitle">Mark your attendance</h1>
-              <p className="publicLead">
-                Enter your mobile number and continue. The system will handle matching, duplicate names,
-                missing profile fields, and new registrations automatically.
-              </p>
+              <h1 className="publicTitle">{promptTitle}</h1>
+              <p className="publicLead">{promptLine}</p>
+
+              <div className="notice publicNotice" style={{ marginTop: 18 }}>
+                {modeLabel}
+              </div>
 
               {message ? <div className="notice publicNotice">{message}</div> : null}
 
@@ -317,13 +384,13 @@ export function AttendanceKiosk({ locationSlug, locationName, accent }: Props) {
                           checked={selectedPersonId === person.id}
                           onChange={() => {
                             setSelectedPersonId(person.id);
-                            setForm(formFromPerson(person));
+                            setForm(formFromPerson(person, registrationMode));
                           }}
                         />
                         <span>
                           <strong>{person.name}</strong>
                           <span className="choiceMeta">
-                            {person.college || "No college"} {person.branch ? `- ${person.branch}` : ""}
+                            {person.status ? `${person.status}${person.status === "student" ? ` • ${person.college || "No college"}` : ""}` : "Profile incomplete"}
                           </span>
                         </span>
                       </label>
@@ -338,7 +405,7 @@ export function AttendanceKiosk({ locationSlug, locationName, accent }: Props) {
               {lookup?.status === "fill" || lookup?.status === "none" ? (
                 <form className="publicStack" onSubmit={(event) => void handleSubmitDetails(event)}>
                   {lookup.status === "fill" ? (
-                    <>
+                    <div className="stack">
                       <div className="pill pillWarning">
                         Missing details: {formatMissingFields(lookup.missingFields)}
                       </div>
@@ -351,7 +418,8 @@ export function AttendanceKiosk({ locationSlug, locationName, accent }: Props) {
                               checked={selectedPersonId === person.id}
                               onChange={() => {
                                 setSelectedPersonId(person.id);
-                                setForm(formFromPerson(person));
+                                setForm(formFromPerson(person, registrationMode));
+                                setMessage(greetingMessage(person.name, "Please fill out the missing details"));
                               }}
                             />
                             <span>
@@ -361,7 +429,7 @@ export function AttendanceKiosk({ locationSlug, locationName, accent }: Props) {
                           </label>
                         ))}
                       </div>
-                    </>
+                    </div>
                   ) : (
                     <div className="pill pillWarning">New candidate registration</div>
                   )}
@@ -398,37 +466,125 @@ export function AttendanceKiosk({ locationSlug, locationName, accent }: Props) {
                         <option>Other</option>
                       </select>
                     </div>
-                    <div className="field">
-                      <label htmlFor="year">Year</label>
-                      <input
-                        id="year"
-                        value={form.year}
-                        placeholder="Year / batch"
-                        onChange={(event) => setForm((current) => ({ ...current, year: event.target.value }))}
-                      />
-                    </div>
+
+                    {registrationMode === "occupation" ? (
+                      <div className="field">
+                        <label htmlFor="status">Status</label>
+                        <select
+                          id="status"
+                          value={form.status}
+                          onChange={(event) =>
+                            setForm((current) => ({
+                              ...current,
+                              status: event.target.value,
+                              college: event.target.value === "student" ? current.college : "",
+                              branch: event.target.value === "student" ? current.branch : "",
+                              year: event.target.value === "student" ? current.year : "",
+                              companyName: event.target.value === "working" ? current.companyName : "",
+                              coachingInstitute: event.target.value === "job search" ? current.coachingInstitute : ""
+                            }))
+                          }
+                        >
+                          <option value="student">Student</option>
+                          <option value="working">Working</option>
+                          <option value="job search">Job Search</option>
+                        </select>
+                      </div>
+                    ) : (
+                      <div className="field">
+                        <label htmlFor="year">Year</label>
+                        <input
+                          id="year"
+                          value={form.year}
+                          placeholder="Year / batch"
+                          onChange={(event) => setForm((current) => ({ ...current, year: event.target.value }))}
+                        />
+                      </div>
+                    )}
                   </div>
 
-                  <div className="fieldGrid">
-                    <div className="field">
-                      <label htmlFor="college">College</label>
-                      <input
-                        id="college"
-                        value={form.college}
-                        placeholder="College or organization"
-                        onChange={(event) => setForm((current) => ({ ...current, college: event.target.value }))}
-                      />
+                  {registrationMode === "occupation" ? (
+                    <>
+                      {form.status === "student" ? (
+                        <div className="fieldGrid">
+                          <div className="field">
+                            <label htmlFor="college">College</label>
+                            <input
+                              id="college"
+                              value={form.college}
+                              placeholder="College name"
+                              onChange={(event) => setForm((current) => ({ ...current, college: event.target.value }))}
+                            />
+                          </div>
+                          <div className="field">
+                            <label htmlFor="branch">Branch</label>
+                            <input
+                              id="branch"
+                              value={form.branch}
+                              placeholder="Branch"
+                              onChange={(event) => setForm((current) => ({ ...current, branch: event.target.value }))}
+                            />
+                          </div>
+                          <div className="field">
+                            <label htmlFor="year">Year</label>
+                            <input
+                              id="year"
+                              value={form.year}
+                              placeholder="Year / batch"
+                              onChange={(event) => setForm((current) => ({ ...current, year: event.target.value }))}
+                            />
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {form.status === "working" ? (
+                        <div className="field">
+                          <label htmlFor="companyName">Company name</label>
+                          <input
+                            id="companyName"
+                            value={form.companyName}
+                            placeholder="Company name"
+                            onChange={(event) => setForm((current) => ({ ...current, companyName: event.target.value }))}
+                          />
+                        </div>
+                      ) : null}
+
+                      {form.status === "job search" ? (
+                        <div className="field">
+                          <label htmlFor="coachingInstitute">Coaching institute name</label>
+                          <input
+                            id="coachingInstitute"
+                            value={form.coachingInstitute}
+                            placeholder="Coaching institute name"
+                            onChange={(event) =>
+                              setForm((current) => ({ ...current, coachingInstitute: event.target.value }))
+                            }
+                          />
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <div className="fieldGrid">
+                      <div className="field">
+                        <label htmlFor="college">College</label>
+                        <input
+                          id="college"
+                          value={form.college}
+                          placeholder="College or organization"
+                          onChange={(event) => setForm((current) => ({ ...current, college: event.target.value }))}
+                        />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="branch">Branch</label>
+                        <input
+                          id="branch"
+                          value={form.branch}
+                          placeholder="Branch / area"
+                          onChange={(event) => setForm((current) => ({ ...current, branch: event.target.value }))}
+                        />
+                      </div>
                     </div>
-                    <div className="field">
-                      <label htmlFor="branch">Branch</label>
-                      <input
-                        id="branch"
-                        value={form.branch}
-                        placeholder="Branch / area"
-                        onChange={(event) => setForm((current) => ({ ...current, branch: event.target.value }))}
-                      />
-                    </div>
-                  </div>
+                  )}
 
                   <button className="button" type="submit" disabled={loading}>
                     {loading ? "Submitting..." : "Submit"}
@@ -459,8 +615,6 @@ export function AttendanceKiosk({ locationSlug, locationName, accent }: Props) {
                   Select your name and click submit.
                 </div>
               ) : null}
-
-              {lookup?.status === "auto_mark" ? null : null}
             </section>
           </main>
         </div>
@@ -482,9 +636,7 @@ export function AttendanceKiosk({ locationSlug, locationName, accent }: Props) {
             <h2 className="publicTitle" style={{ marginTop: 8, fontSize: 32 }}>
               Attendance history
             </h2>
-            <p className="publicLead">
-              Enter the same mobile number to see your session history.
-            </p>
+            <p className="publicLead">Enter the same mobile number to see your session history.</p>
 
             {historyMessage ? <div className="notice publicNotice">{historyMessage}</div> : null}
 
@@ -520,7 +672,9 @@ export function AttendanceKiosk({ locationSlug, locationName, accent }: Props) {
                       />
                       <span>
                         <strong>{person.name}</strong>
-                        <span className="choiceMeta">{person.college || "No college"} {person.branch ? `- ${person.branch}` : ""}</span>
+                        <span className="choiceMeta">
+                          {person.status ? person.status : "Profile incomplete"}
+                        </span>
                       </span>
                     </label>
                   ))}
@@ -576,3 +730,4 @@ export function AttendanceKiosk({ locationSlug, locationName, accent }: Props) {
     </>
   );
 }
+

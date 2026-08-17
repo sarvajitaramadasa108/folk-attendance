@@ -19,9 +19,12 @@ export async function POST(
     name?: string;
     age?: number | null;
     gender?: string;
+    status?: string;
     college?: string;
     branch?: string;
     year?: string;
+    companyName?: string;
+    coachingInstitute?: string;
   };
 
   if (!body.mobile || !body.name) {
@@ -34,9 +37,12 @@ export async function POST(
     name: body.name,
     age: body.age ?? null,
     gender: body.gender,
+    status: body.status,
     college: body.college,
     branch: body.branch,
-    year: body.year
+    year: body.year,
+    companyName: body.companyName,
+    coachingInstitute: body.coachingInstitute
   });
 
   return NextResponse.json(result);

@@ -21,6 +21,7 @@ export default async function LocationPage({
           locationSlug={config.slug}
           locationName={config.name}
           accent={config.accent}
+          registrationMode={config.registrationMode}
         />
       </div>
     </main>

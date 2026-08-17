@@ -1,14 +1,18 @@
 import { ObjectId } from "mongodb";
 import { getDb } from "@/lib/mongodb";
+import { getLocationConfig } from "@/lib/locations";
 import { formatIndiaDateKey, formatIndiaShortLabel, normalizeMobile } from "@/lib/format";
 
 type PersonInput = {
   name: string;
   age?: number | null;
   gender?: string;
+  status?: string;
   college?: string;
   branch?: string;
   year?: string;
+  companyName?: string;
+  coachingInstitute?: string;
 };
 
 type LocationDoc = {
@@ -64,9 +68,12 @@ export type PublicPerson = {
   mobile: string;
   age: number | null;
   gender: string;
+  status: string;
   college: string;
   branch: string;
   year: string;
+  companyName: string;
+  coachingInstitute: string;
   profileComplete: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -114,6 +121,21 @@ function formatSessionDateLabel(date: Date) {
   }).format(date);
 }
 
+function getRegistrationMode(locationSlug: string): "standard" | "occupation" {
+  return getLocationConfig(locationSlug)?.registrationMode || "standard";
+}
+
+function normalizeStatus(value: unknown) {
+  const text = String(value ?? "").trim().toLowerCase();
+  if (text === "student" || text === "working" || text === "job search") return text;
+  if (text === "job_search" || text === "jobsearch") return "job search";
+  return "";
+}
+
+function attendanceSuccessMessage(name?: string) {
+  return name?.trim() ? `Hare Krishna "${name.trim()}", Your attendance is marked successfully` : "Hare Krishna, Your attendance is marked successfully";
+}
+
 function toSessionInfo(session: SessionDoc): SessionInfo {
   const sessionName = String(session.sessionName || "").trim();
   const displayLabel = sessionName || session.sessionLabel || formatSessionDateLabel(session.sessionDate);
@@ -155,7 +177,7 @@ async function ensureLocation(locationSlug: string) {
   );
 }
 
-function isProfileComplete(person: Pick<PersonDoc, "age" | "gender" | "college" | "branch" | "year">) {
+function isStandardProfileComplete(person: Pick<PersonDoc, "age" | "gender" | "college" | "branch" | "year">) {
   const age = typeof person.age === "number" && Number.isFinite(person.age) && person.age > 0;
   const gender = Boolean(String(person.gender || "").trim());
   const college = Boolean(String(person.college || "").trim());
@@ -164,13 +186,73 @@ function isProfileComplete(person: Pick<PersonDoc, "age" | "gender" | "college" 
   return age && gender && college && branch && year;
 }
 
-function missingProfileFields(person: Pick<PersonDoc, "age" | "gender" | "college" | "branch" | "year">) {
+function isOccupationProfileComplete(
+  person: Pick<PersonDoc, "age" | "gender" | "status" | "college" | "branch" | "year" | "companyName" | "coachingInstitute">
+) {
+  const age = typeof person.age === "number" && Number.isFinite(person.age) && person.age > 0;
+  const gender = Boolean(String(person.gender || "").trim());
+  const status = normalizeStatus(person.status);
+  if (!age || !gender || !status) return false;
+
+  if (status === "student") {
+    return Boolean(String(person.college || "").trim()) && Boolean(String(person.branch || "").trim()) && Boolean(String(person.year || "").trim());
+  }
+
+  if (status === "working") {
+    return Boolean(String(person.companyName || "").trim());
+  }
+
+  if (status === "job search") {
+    return Boolean(String(person.coachingInstitute || "").trim());
+  }
+
+  return false;
+}
+
+function isProfileComplete(locationSlug: string, person: PersonDoc) {
+  if (getRegistrationMode(locationSlug) === "occupation") {
+    return isOccupationProfileComplete(person);
+  }
+  return isStandardProfileComplete(person);
+}
+
+function missingProfileFields(locationSlug: string, person: PersonDoc) {
   const missing: string[] = [];
+  const occupationMode = getRegistrationMode(locationSlug) === "occupation";
+
   if (!(typeof person.age === "number" && Number.isFinite(person.age) && person.age > 0)) missing.push("age");
   if (!String(person.gender || "").trim()) missing.push("gender");
-  if (!String(person.college || "").trim()) missing.push("college");
-  if (!String(person.branch || "").trim()) missing.push("branch");
-  if (!String(person.year || "").trim()) missing.push("year");
+
+  if (!occupationMode) {
+    if (!String(person.college || "").trim()) missing.push("college");
+    if (!String(person.branch || "").trim()) missing.push("branch");
+    if (!String(person.year || "").trim()) missing.push("year");
+    return missing;
+  }
+
+  const status = normalizeStatus(person.status);
+  if (!status) {
+    missing.push("status");
+    return missing;
+  }
+
+  if (status === "student") {
+    if (!String(person.college || "").trim()) missing.push("college");
+    if (!String(person.branch || "").trim()) missing.push("branch");
+    if (!String(person.year || "").trim()) missing.push("year");
+    return missing;
+  }
+
+  if (status === "working") {
+    if (!String(person.companyName || "").trim()) missing.push("companyName");
+    return missing;
+  }
+
+  if (status === "job search") {
+    if (!String(person.coachingInstitute || "").trim()) missing.push("coachingInstitute");
+    return missing;
+  }
+
   return missing;
 }
 
@@ -181,10 +263,13 @@ function sanitizePerson(person: PersonDoc): PublicPerson {
     mobile: person.mobile,
     age: person.age ?? null,
     gender: person.gender || "",
+    status: normalizeStatus(person.status),
     college: person.college || "",
     branch: person.branch || "",
     year: person.year || "",
-    profileComplete: isProfileComplete(person),
+    companyName: person.companyName || "",
+    coachingInstitute: person.coachingInstitute || "",
+    profileComplete: isProfileComplete(person.locationSlug, person),
     createdAt: person.createdAt,
     updatedAt: person.updatedAt
   };
@@ -409,8 +494,8 @@ export async function lookupMobile(locationSlug: string, mobileInput: string): P
   }
 
   const persons = people.map(sanitizePerson);
-  const completePeople = people.filter((person) => isProfileComplete(person));
-  const anyIncomplete = people.some((person) => !isProfileComplete(person));
+  const completePeople = people.filter((person) => isProfileComplete(locationSlug, person));
+  const anyIncomplete = people.some((person) => !isProfileComplete(locationSlug, person));
 
   if (people.length === 1 && completePeople.length === 1) {
     return {
@@ -430,14 +515,14 @@ export async function lookupMobile(locationSlug: string, mobileInput: string): P
     };
   }
 
-  const selected = people.find((person) => !isProfileComplete(person)) || people[0];
+  const selected = people.find((person) => !isProfileComplete(locationSlug, person)) || people[0];
   return {
     status: "fill",
     mobile,
     session: toSessionInfo(session),
     people: persons,
     selectedPersonId: String(selected._id),
-    missingFields: missingProfileFields(selected)
+    missingFields: missingProfileFields(locationSlug, selected)
   };
 }
 
@@ -501,9 +586,12 @@ export async function createPersonAndMark(
     name: input.name.trim(),
     age: input.age ?? null,
     gender: input.gender?.trim() || "Male",
+    status: normalizeStatus(input.status),
     college: input.college?.trim() || "",
     branch: input.branch?.trim() || "",
     year: input.year?.trim() || "",
+    companyName: input.companyName?.trim() || "",
+    coachingInstitute: input.coachingInstitute?.trim() || "",
     updatedAt: now
   };
 
@@ -526,9 +614,12 @@ export async function createPersonAndMark(
       name: input.name.trim() || person.name,
       age: input.age ?? person.age ?? null,
       gender: input.gender?.trim() || person.gender || "Male",
+      status: normalizeStatus(input.status) || normalizeStatus(person.status),
       college: input.college?.trim() || person.college || "",
       branch: input.branch?.trim() || person.branch || "",
-      year: input.year?.trim() || person.year || ""
+      year: input.year?.trim() || person.year || "",
+      companyName: input.companyName?.trim() || person.companyName || "",
+      coachingInstitute: input.coachingInstitute?.trim() || person.coachingInstitute || ""
     };
 
     await db.collection<PersonDoc>("people").updateOne(
@@ -538,9 +629,12 @@ export async function createPersonAndMark(
           name: merged.name,
           age: merged.age,
           gender: merged.gender,
+          status: merged.status,
           college: merged.college,
           branch: merged.branch,
           year: merged.year,
+          companyName: merged.companyName,
+          coachingInstitute: merged.coachingInstitute,
           updatedAt: now
         }
       }
@@ -556,9 +650,12 @@ export async function createPersonAndMark(
           name: input.name.trim(),
           age: input.age ?? null,
           gender: input.gender?.trim() || "Male",
+          status: normalizeStatus(input.status),
           college: input.college?.trim() || "",
           branch: input.branch?.trim() || "",
           year: input.year?.trim() || "",
+          companyName: input.companyName?.trim() || "",
+          coachingInstitute: input.coachingInstitute?.trim() || "",
           createdAt: now
         }
       },
@@ -593,7 +690,7 @@ export async function createPersonAndMark(
     status: "marked",
     session: toSessionInfo(session),
     person: sanitizePerson(person),
-    message: `Welcome ${person.name}. Attendance marked Successfully`
+    message: attendanceSuccessMessage(person.name)
   };
 }
 
@@ -634,9 +731,7 @@ export async function markAttendanceForPerson(locationSlug: string, personId: st
     status: duplicate ? "already_marked" : "marked",
     session: toSessionInfo(session),
     person: sanitizePerson(person),
-    message: duplicate
-      ? `${person.name} was already marked for this session.`
-      : `Welcome ${person.name}. Attendance marked Successfully`
+    message: attendanceSuccessMessage(person.name)
   };
 }
 

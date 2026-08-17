@@ -6,6 +6,7 @@ export type LocationConfig = {
   accentSoft: string;
   description: string;
   adminCode: string;
+  registrationMode: "standard" | "occupation";
 };
 
 export const locations: Record<string, LocationConfig> = {
@@ -17,7 +18,8 @@ export const locations: Record<string, LocationConfig> = {
     accentSoft: "rgba(139, 233, 168, 0.15)",
     description:
       "Attendance kiosk and admin dashboard for the MVP location, built to mirror the existing spreadsheet workflow.",
-    adminCode: "MVP@2026"
+    adminCode: "MVP@2026",
+    registrationMode: "standard"
   },
   anits: {
     slug: "anits",
@@ -27,7 +29,8 @@ export const locations: Record<string, LocationConfig> = {
     accentSoft: "rgba(126, 200, 255, 0.15)",
     description:
       "Location-specific attendance space ready for the same flow once data is connected.",
-    adminCode: "ANITS@2026"
+    adminCode: "ANITS@2026",
+    registrationMode: "standard"
   },
   kommadi: {
     slug: "kommadi",
@@ -37,7 +40,8 @@ export const locations: Record<string, LocationConfig> = {
     accentSoft: "rgba(243, 156, 107, 0.15)",
     description:
       "Fresh location workspace ready to start from zero with attendee-driven attendance capture.",
-    adminCode: "KOMMADI@2026"
+    adminCode: "KOMMADI@2026",
+    registrationMode: "standard"
   },
   dwarakanagar: {
     slug: "dwarakanagar",
@@ -47,7 +51,8 @@ export const locations: Record<string, LocationConfig> = {
     accentSoft: "rgba(167, 139, 250, 0.15)",
     description:
       "Fresh location workspace ready to start from zero with attendee-driven attendance capture.",
-    adminCode: "DWARAKANAGAR@2026"
+    adminCode: "DWARAKANAGAR@2026",
+    registrationMode: "occupation"
   }
 };
 

@@ -140,6 +140,33 @@ function greetingMessage(name: string, suffix: string) {
   return name ? `Hare Krishna "${name}", ${suffix}` : `Hare Krishna, ${suffix}`;
 }
 
+function requiredFieldsForSubmission(form: FormState, registrationMode: RegistrationMode) {
+  const fields: string[] = ["name", "age", "gender"];
+
+  if (registrationMode === "occupation") {
+    fields.push("status");
+
+    if (form.status === "student") {
+      fields.push("college", "branch", "year");
+    } else if (form.status === "working") {
+      fields.push("companyName");
+    } else if (form.status === "job search") {
+      fields.push("coachingInstitute");
+    }
+  } else {
+    fields.push("college", "branch", "year");
+  }
+
+  return fields;
+}
+
+function missingSubmissionFields(form: FormState, registrationMode: RegistrationMode) {
+  return requiredFieldsForSubmission(form, registrationMode).filter((field) => {
+    const value = form[field as keyof FormState];
+    return typeof value === "string" ? isBlank(value) : false;
+  });
+}
+
 export function AttendanceKiosk({ locationSlug, locationName, accent, registrationMode }: Props) {
   const [mobile, setMobile] = useState("");
   const [lookup, setLookup] = useState<LookupResponse | null>(null);
@@ -244,6 +271,17 @@ export function AttendanceKiosk({ locationSlug, locationName, accent, registrati
 
   async function handleSubmitDetails(event: React.FormEvent) {
     event.preventDefault();
+
+    const missingFields = missingSubmissionFields(form, registrationMode);
+    if (missingFields.length) {
+      setMessage(
+        form.name.trim()
+          ? greetingMessage(form.name.trim(), "Please fill out the missing details")
+          : greetingMessage("", "Please register yourself by filling the details")
+      );
+      return;
+    }
+
     setLoading(true);
 
     const response = await fetch(`/api/locations/${locationSlug}/attendance/create`, {

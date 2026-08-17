@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 type RegistrationMode = "standard" | "occupation";
 
@@ -167,6 +167,17 @@ function missingSubmissionFields(form: FormState, registrationMode: Registration
   });
 }
 
+async function readJsonResponse<T>(response: Response) {
+  const text = await response.text();
+  if (!text) return null;
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
+}
+
 export function AttendanceKiosk({ locationSlug, locationName, accent, registrationMode }: Props) {
   const [mobile, setMobile] = useState("");
   const [lookup, setLookup] = useState<LookupResponse | null>(null);
@@ -181,11 +192,6 @@ export function AttendanceKiosk({ locationSlug, locationName, accent, registrati
   const [historySelectedPersonId, setHistorySelectedPersonId] = useState("");
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyMessage, setHistoryMessage] = useState("");
-
-  const modeLabel = useMemo(
-    () => (registrationMode === "occupation" ? "Enter your mobile number. We will ask only what is needed." : "Enter your mobile number to mark attendance."),
-    [registrationMode]
-  );
 
   useEffect(() => {
     if (!lookup) return;
@@ -219,54 +225,72 @@ export function AttendanceKiosk({ locationSlug, locationName, accent, registrati
     setLookup(null);
     setSelectedPersonId("");
 
-    const response = await fetch(`/api/locations/${locationSlug}/attendance/lookup`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mobile })
-    });
+    try {
+      const response = await fetch(`/api/locations/${locationSlug}/attendance/lookup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mobile })
+      });
+      const data = await readJsonResponse<LookupResponse>(response);
 
-    const data = (await response.json()) as LookupResponse;
-    setLoading(false);
+      if (!data) {
+        setMessage("Could not search right now.");
+        return;
+      }
 
-    if (data.status === "invalid") {
-      setMessage("Please enter a valid mobile number.");
-      return;
+      if (data.status === "invalid") {
+        setMessage("Please enter a valid mobile number.");
+        return;
+      }
+
+      if (data.status === "auto_mark") {
+        await markSelected(data.person.id);
+        return;
+      }
+
+      if (data.status === "none") {
+        setMessage(greetingMessage("", "Please register yourself by filling the details"));
+      } else if (data.status === "fill") {
+        const selected = data.people.find((person) => person.id === data.selectedPersonId) || data.people[0];
+        setMessage(greetingMessage(selected?.name || "", "Please fill out the missing details"));
+        setSelectedPersonId(data.selectedPersonId);
+        setForm(formFromPerson(selected, registrationMode));
+      }
+
+      setLookup(data);
+    } catch {
+      setMessage("Could not search right now.");
+    } finally {
+      setLoading(false);
     }
-
-    if (data.status === "auto_mark") {
-      await markSelected(data.person.id);
-      return;
-    }
-
-    if (data.status === "none") {
-      setMessage(greetingMessage("", "Please register yourself by filling the details"));
-    } else if (data.status === "fill") {
-      const selected = data.people.find((person) => person.id === data.selectedPersonId) || data.people[0];
-      setMessage(greetingMessage(selected?.name || "", "Please fill out the missing details"));
-      setSelectedPersonId(data.selectedPersonId);
-      setForm(formFromPerson(selected, registrationMode));
-    }
-
-    setLookup(data);
   }
 
   async function markSelected(personId: string) {
     setLoading(true);
-    const response = await fetch(`/api/locations/${locationSlug}/attendance/mark`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ personId })
-    });
+    try {
+      const response = await fetch(`/api/locations/${locationSlug}/attendance/mark`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ personId })
+      });
+      const data = await readJsonResponse<SubmitResponse>(response);
 
-    const data = (await response.json()) as SubmitResponse;
-    setLoading(false);
+      if (!data) {
+        setMessage("Unable to mark attendance right now.");
+        return;
+      }
 
-    if (data.status === "marked" || data.status === "already_marked") {
-      resetAfterSuccess(data.message);
-      return;
+      if (data.status === "marked" || data.status === "already_marked") {
+        resetAfterSuccess(data.message);
+        return;
+      }
+
+      setMessage(data.message || "Unable to mark attendance right now.");
+    } catch {
+      setMessage("Unable to mark attendance right now.");
+    } finally {
+      setLoading(false);
     }
-
-    setMessage(data.message || "Unable to mark attendance right now.");
   }
 
   async function handleSubmitDetails(event: React.FormEvent) {
@@ -284,33 +308,42 @@ export function AttendanceKiosk({ locationSlug, locationName, accent, registrati
 
     setLoading(true);
 
-    const response = await fetch(`/api/locations/${locationSlug}/attendance/create`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        mobile,
-        personId: selectedPersonId || undefined,
-        name: form.name,
-        age: isBlank(form.age) ? null : Number(form.age),
-        gender: form.gender,
-        status: form.status,
-        college: form.college,
-        branch: form.branch,
-        year: form.year,
-        companyName: form.companyName,
-        coachingInstitute: form.coachingInstitute
-      })
-    });
+    try {
+      const response = await fetch(`/api/locations/${locationSlug}/attendance/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mobile,
+          personId: selectedPersonId || undefined,
+          name: form.name,
+          age: isBlank(form.age) ? null : Number(form.age),
+          gender: form.gender,
+          status: form.status,
+          college: form.college,
+          branch: form.branch,
+          year: form.year,
+          companyName: form.companyName,
+          coachingInstitute: form.coachingInstitute
+        })
+      });
+      const data = await readJsonResponse<SubmitResponse>(response);
 
-    const data = (await response.json()) as SubmitResponse;
-    setLoading(false);
+      if (!data) {
+        setMessage("Could not save attendance.");
+        return;
+      }
 
-    if (data.status === "marked" || data.status === "already_marked") {
-      resetAfterSuccess(data.message);
-      return;
+      if (data.status === "marked" || data.status === "already_marked") {
+        resetAfterSuccess(data.message);
+        return;
+      }
+
+      setMessage(data.message || "Could not save attendance.");
+    } catch {
+      setMessage("Could not save attendance.");
+    } finally {
+      setLoading(false);
     }
-
-    setMessage(data.message || "Could not save attendance.");
   }
 
   async function handleHistorySearch(event: React.FormEvent) {
@@ -371,10 +404,7 @@ export function AttendanceKiosk({ locationSlug, locationName, accent, registrati
     registrationMode === "occupation"
       ? "Mark your attendance"
       : "Mark your attendance";
-  const promptLine =
-    registrationMode === "occupation"
-      ? "Enter your mobile number. We will ask only for the details we still need."
-      : "Enter your mobile number and we will handle the rest.";
+  const promptLine = "Please enter your mobile number.";
 
   return (
     <>
@@ -397,10 +427,6 @@ export function AttendanceKiosk({ locationSlug, locationName, accent, registrati
               </div>
               <h1 className="publicTitle">{promptTitle}</h1>
               <p className="publicLead">{promptLine}</p>
-
-              <div className="notice publicNotice" style={{ marginTop: 18 }}>
-                {modeLabel}
-              </div>
 
               {message ? <div className="notice publicNotice">{message}</div> : null}
 
